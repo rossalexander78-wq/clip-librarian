@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+</head>
+<body>
+<title>MPC Clip Librarian</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: hardware-style top strip with the edit bar, scrolling clip grid on the left, inspector on the right (stacks below on narrow screens) */
+:root{
+  --bg:#eef0f2; --panel:#ffffff; --panel-2:#f6f7f8; --line:#d5d9de; --fg:#1d2126; --muted:#5d6670; --accent:#d4401f; --on-accent:#ffffff;
+  --drum:#e07a2e; --kg:#c9a227; --plugin:#8a5cc7; --midi:#2f7fd0; --audio:#1f9e8f; --other:#7a838c;
+  --cell-empty:#e4e7ea; --sel:#1d2126; --rowsel:#fde3db; --ok:#2f8a4e;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#16191c; --panel:#1f2327; --panel-2:#262b30; --line:#353b42; --fg:#e7eaed; --muted:#9aa3ad; --accent:#ff6a45; --on-accent:#1a0d08;
+  --drum:#f0924a; --kg:#e0bd48; --plugin:#a982e0; --midi:#5ea1e8; --audio:#3cc0ae; --other:#8d969f;
+  --cell-empty:#23282d; --sel:#e7eaed; --rowsel:#3d2620; --ok:#5cc27e; color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#16191c; --panel:#1f2327; --panel-2:#262b30; --line:#353b42; --fg:#e7eaed; --muted:#9aa3ad; --accent:#ff6a45; --on-accent:#1a0d08;
+  --drum:#f0924a; --kg:#e0bd48; --plugin:#a982e0; --midi:#5ea1e8; --audio:#3cc0ae; --other:#8d969f;
+  --cell-empty:#23282d; --sel:#e7eaed; --rowsel:#3d2620; --ok:#5cc27e; color-scheme:dark }
+[hidden]{display:none!important}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:14px;margin:0}
+.app{display:flex;flex-direction:column;height:100%;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:14px;box-sizing:border-box;gap:10px}
+header.strip{display:flex;flex-wrap:wrap;align-items:center;gap:10px 20px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 16px}
+.brand{display:flex;align-items:baseline;gap:10px;min-width:0}
+.brand h1{font-family:var(--display);font-weight:700;font-size:26px;letter-spacing:.02em;margin:0;text-transform:uppercase;line-height:1}
+.brand .led{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);align-self:center}
+.stats{display:flex;flex-wrap:wrap;gap:6px 18px;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.stats b{color:var(--fg);font-weight:500}
+.spacer{flex:1}
+.btn{font:600 13px var(--body);border:1px solid var(--line);background:var(--panel-2);color:var(--fg);border-radius:6px;padding:6px 11px;cursor:pointer;white-space:nowrap}
+.btn:hover:not(:disabled){border-color:var(--muted)}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn:focus-visible,input:focus-visible,.cell:focus-visible,.rowhead:focus-visible,.sw-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.editbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.editbar .grp{display:flex;gap:6px;align-items:center;padding-right:8px;border-right:1px solid var(--line)}
+.editbar .grp:last-of-type{border-right:0}
+.editbar .info{font-size:12.5px;color:var(--muted)}
+.editbar .dirty{font-family:var(--mono);font-size:11.5px;color:var(--accent)}
+.editbar .saved{font-family:var(--mono);font-size:11.5px;color:var(--ok)}
+.controls{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:13px;color:var(--muted)}
+.controls input[type=search]{font:13px var(--body);padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--fg);width:200px;max-width:100%}
+.controls label{display:flex;gap:6px;align-items:center;cursor:pointer}
+.legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px}
+@media (max-width:900px){.main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(320px,1fr) auto}}
+.gridwrap{min-width:0;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px;position:relative}
+table.grid{border-collapse:separate;border-spacing:0;font-size:12px}
+.grid th,.grid td{padding:0}
+.grid thead th{position:sticky;top:0;z-index:3;background:var(--panel);border-bottom:1px solid var(--line);vertical-align:bottom}
+.grid thead th.corner{left:0;z-index:4}
+.colhead{width:118px;padding:8px 6px 6px;text-align:left;border-left:1px solid var(--line)}
+.colhead .tn{font-family:var(--display);font-weight:600;font-size:15px;line-height:1.05;letter-spacing:.01em;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px}
+.colhead .tt{display:flex;gap:5px;align-items:center;margin-top:4px;font-family:var(--mono);font-size:10.5px;color:var(--muted);white-space:nowrap}
+.colhead .tt i{width:8px;height:8px;border-radius:2px;flex:none}
+.colhead .num{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.colhead[draggable=true]{cursor:grab;user-select:none;-webkit-user-select:none}
+.colhead.selcol{background:var(--rowsel)}
+td.c.selcol{background:color-mix(in srgb,var(--rowsel) 55%,transparent)}
+.colhead .was{font-family:var(--mono);font-size:10px;color:var(--accent);margin-left:4px}
+th.drop-left{box-shadow:inset 3px 0 0 var(--accent)}
+th.drop-right{box-shadow:inset -3px 0 0 var(--accent)}
+th.dragging{opacity:.5}
+th.rowhead{position:sticky;left:0;z-index:2;background:var(--panel);border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:0 8px 0 0;min-width:186px;max-width:186px;cursor:grab;user-select:none;-webkit-user-select:none;text-align:left}
+tr.selrow th.rowhead{background:var(--rowsel)}
+tr.selrow td.c{background:color-mix(in srgb,var(--rowsel) 55%,transparent)}
+.rowhead .rh{display:flex;align-items:center;gap:7px;height:44px}
+.rowhead .sw{width:6px;align-self:stretch;flex:none}
+.rowhead .ri{font-family:var(--mono);font-size:10.5px;color:var(--muted);width:30px;text-align:right;font-variant-numeric:tabular-nums;flex:none}
+.rowhead .rtext{min-width:0;display:flex;flex-direction:column}
+.rowhead .rn{font-weight:600;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rowhead .was{font-family:var(--mono);font-size:10px;color:var(--muted);white-space:nowrap}
+.rowhead .was.chg{color:var(--accent)}
+tr.copy .rowhead .rn{font-weight:400;color:var(--muted)}
+.rowhead input.rename{font:600 12.5px var(--body);width:130px;padding:3px 5px;border:1px solid var(--accent);border-radius:4px;background:var(--panel);color:var(--fg)}
+tr.drop-before th,tr.drop-before td{box-shadow:inset 0 3px 0 var(--accent)}
+tr.drop-after th,tr.drop-after td{box-shadow:inset 0 -3px 0 var(--accent)}
+tr.dragging{opacity:.5}
+.grid td.c{border-left:1px solid var(--line);border-bottom:1px solid var(--line);width:118px;height:44px;vertical-align:top}
+.cell{display:block;width:118px;height:44px;box-sizing:border-box;border:0;padding:5px 6px 4px 8px;text-align:left;font:inherit;color:var(--fg);cursor:pointer;position:relative;overflow:hidden;background:color-mix(in srgb,var(--tc) 13%,var(--panel))}
+.cell::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--tc)}
+.cell .cdot{position:absolute;right:5px;top:5px;width:8px;height:8px;border-radius:50%;border:1px solid var(--line)}
+.cell:hover{background:color-mix(in srgb,var(--tc) 24%,var(--panel))}
+.cell.sel{box-shadow:inset 0 0 0 2px var(--sel)}
+.cell .cn{display:block;font-size:11.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:10px}
+.cell .cm{display:flex;gap:6px;margin-top:3px;font-family:var(--mono);font-size:10px;color:var(--muted);white-space:nowrap}
+.cell .pc{color:var(--accent);font-weight:500}
+.empty{display:block;width:118px;height:44px;background:var(--cell-empty);opacity:.55}
+aside.insp{min-width:0;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:14px}
+.insp h2{font-family:var(--display);font-size:22px;font-weight:600;margin:0;line-height:1.1;text-wrap:balance;overflow-wrap:anywhere}
+.insp .sub{color:var(--muted);font-size:12.5px;margin-top:3px}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.field input[type=text]{font:500 13px var(--body);padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--panel-2);color:var(--fg)}
+.swatches{display:flex;flex-wrap:wrap;gap:6px}
+.sw-btn{width:24px;height:24px;border-radius:5px;border:1px solid var(--line);cursor:pointer;padding:0;position:relative}
+.sw-btn.on{box-shadow:0 0 0 2px var(--panel),0 0 0 4px var(--fg)}
+.sw-btn.none{background:repeating-linear-gradient(45deg,var(--panel-2) 0 4px,var(--line) 4px 5px)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:12.5px}
+.kv dt{color:var(--muted);text-transform:uppercase;font-size:10.5px;letter-spacing:.08em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--mono);font-size:12px;min-width:0;overflow-wrap:anywhere}
+.sec{font-family:var(--display);text-transform:uppercase;letter-spacing:.1em;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:10px}
+canvas.roll{width:100%;height:150px;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;display:block}
+.notes{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px;font-variant-numeric:tabular-nums}
+.notes th{text-align:left;color:var(--muted);font-weight:500;border-bottom:1px solid var(--line);padding:3px 4px}
+.notes td{padding:2px 4px;border-bottom:1px solid color-mix(in srgb,var(--line) 50%,transparent)}
+.tablebox{overflow-x:auto;max-height:240px;overflow-y:auto}
+.hint{color:var(--muted);font-size:12.5px;line-height:1.5;margin:0}
+.keys{font-family:var(--mono);font-size:11.5px;color:var(--muted);display:grid;grid-template-columns:auto 1fr;gap:3px 10px}
+.keys kbd{font-family:var(--mono);color:var(--fg)}
+.banner{font-size:12.5px;color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.banner .tag{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-radius:4px;padding:2px 6px;color:var(--fg)}
+.err{color:var(--accent);font-weight:500}
+.drop{position:fixed;inset:0;background:color-mix(in srgb,var(--bg) 80%,transparent);display:flex;align-items:center;justify-content:center;z-index:20;font-family:var(--display);font-size:30px;text-transform:uppercase;letter-spacing:.06em;border:3px dashed var(--accent)}
+.busy{font-family:var(--mono);font-size:12px;color:var(--accent)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:9px 14px;border-radius:8px;font-size:13px;z-index:30;display:flex;gap:12px;align-items:center;max-width:calc(100% - 40px)}
+.toast button{font:600 13px var(--body);background:transparent;border:0;color:var(--bg);text-decoration:underline;cursor:pointer}
+@media (prefers-reduced-motion:no-preference){.cell{transition:background .12s}}
+</style>
+
+<div class="app">
+  <header class="strip">
+    <div class="brand"><span class="led" aria-hidden="true"></span><h1>Clip Librarian</h1></div>
+    <div class="stats" id="stats"></div>
+    <div class="spacer"></div>
+    <span class="busy" id="busy" hidden>Reading project…</span>
+    <input type="file" id="file" accept=".xpj" hidden>
+    <button class="btn" id="open">Open .xpj project</button>
+    <button class="btn primary" id="save" disabled>Save Clip Librarian copy</button>
+  </header>
+  <div class="editbar" role="toolbar" aria-label="Row editing">
+    <div class="grp"><button class="btn" id="up" title="Move up (Alt+↑)">↑ Up</button><button class="btn" id="down" title="Move down (Alt+↓)">↓ Down</button></div>
+    <div class="grp"><button class="btn" id="copy" title="Copy rows (Cmd/Ctrl+C)">Copy</button><button class="btn" id="paste" title="Paste rows after the selection (Cmd/Ctrl+V)">Paste</button><button class="btn" id="del" title="Delete rows (Delete)">Delete</button></div>
+    <div class="grp"><button class="btn" id="tleft" title="Move tracks left (Alt+←)">← Track</button><button class="btn" id="tright" title="Move tracks right (Alt+→)">Track →</button></div>
+    <div class="grp"><button class="btn" id="undo" title="Undo (Cmd/Ctrl+Z)">Undo</button><button class="btn" id="redo" title="Redo (Shift+Cmd/Ctrl+Z)">Redo</button></div>
+    <span class="info" id="selinfo"></span>
+    <div class="spacer"></div>
+    <span id="dirty"></span>
+  </div>
+  <div class="controls">
+    <div class="banner" id="banner"></div>
+    <div class="spacer"></div>
+    <input type="search" id="q" placeholder="Filter rows by name" aria-label="Filter rows by name">
+    <label><input type="checkbox" id="hideEmptyRows" checked> Hide empty rows</label>
+    <label><input type="checkbox" id="hideMix" checked> Hide mixer tracks</label>
+  </div>
+  <div class="legend" id="legend"></div>
+  <div class="main">
+    <div class="gridwrap" id="gridwrap"><table class="grid" id="grid"></table></div>
+    <aside class="insp" id="insp" aria-live="polite"></aside>
+  </div>
+</div>
+<div class="drop" id="drop" hidden>Drop .xpj to open</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script type="application/json" id="sample">{"file":"Demo live set.xpj","version":"3.9","bpm":126,"tempoOn":true,"tracks":[{"name":"Program changes","type":4,"out":{"dev":"MPC LIVE III DIN-B","ch":8}},{"name":"Kicks","type":0,"out":null,"pads":16},{"name":"Hats","type":0,"out":null,"pads":16},{"name":"Claps","type":0,"out":null,"pads":12},{"name":"Bass synth","type":4,"out":{"dev":"MPC LIVE III DIN-A","ch":1}},{"name":"Lead synth","type":4,"out":{"dev":"MPC LIVE III DIN-A","ch":2}},{"name":"Pad","type":3,"out":null,"plugin":{"name":"TubeSynth","preset":"Warm Pad"}},{"name":"Loops","type":6,"out":null},{"name":"Submix 1","type":8,"out":null},{"name":"Out 1/2","type":9,"out":null}],"rows":[{"name":"Night drive","colour":15022389,"clips":{"Program changes":{"n":"Night drive prog change 12","colour":0,"len":7680,"loop":false,"notes":[],"pc":[[0,12]],"cc":{},"at":0,"audio":null},"Kicks":{"n":"Night drive kick","colour":0,"len":15360,"loop":true,"notes":[[0,36,120,240],[960,36,120,240],[1920,36,120,240],[2880,36,120,240],[3840,36,120,240],[4800,36,120,240],[5760,36,120,240],[6720,36,120,240],[7680,36,120,240],[8640,36,120,240],[9600,36,120,240],[10560,36,120,240],[11520,36,120,240],[12480,36,120,240],[13440,36,120,240],[14400,36,120,240]],"pc":[],"cc":{},"at":0,"audio":null},"Bass synth":{"n":"Night drive bass","colour":0,"len":15360,"loop":true,"notes":[[0,36,100,200],[480,36,100,200],[960,46,100,200],[1440,46,100,200],[1920,46,100,200],[2400,36,100,200],[2880,36,100,200],[3360,46,100,200],[3840,46,100,200],[4320,36,100,200],[4800,46,100,200],[5760,48,100,200],[6240,36,100,200],[6720,36,100,200],[7200,36,100,200],[7680,46,100,200],[8160,36,100,200],[8640,46,100,200],[9120,43,100,200],[9600,36,100,200],[10080,46,100,200],[10560,46,100,200],[11040,43,100,200],[11520,48,100,200],[12000,36,100,200],[12960,36,100,200],[13440,43,100,200],[13920,43,100,200],[14880,36,100,200]],"pc":[],"cc":{},"at":0,"audio":null},"Pad":{"n":"Night drive pad","colour":0,"len":15360,"loop":true,"notes":[[0,48,70,3840],[0,51,70,3840],[0,55,70,3840],[3840,48,70,3840],[3840,51,70,3840],[3840,55,70,3840],[7680,48,70,3840],[7680,51,70,3840],[7680,55,70,3840],[11520,48,70,3840],[11520,51,70,3840],[11520,55,70,3840]],"pc":[],"cc":{},"at":0,"audio":null}}},{"name":"Night drive - 2","colour":15022389,"clips":{"Kicks":{"n":"Night drive kick","colour":0,"len":15360,"loop":true,"notes":[[0,36,120,240],[960,36,120,240],[1920,36,120,240],[2880,36,120,240],[3840,36,120,240],[4800,36,120,240],[5760,36,120,240],[6720,36,120,240],[7680,36,120,240],[8640,36,120,240],[9600,36,120,240],[10560,36,120,240],[11520,36,120,240],[12480,36,120,240],[13440,36,120,240],[14400,36,120,240]],"pc":[],"cc":{},"at":0,"audio":null},"Hats":{"n":"Night drive hats","colour":0,"len":15360,"loop":true,"notes":[[480,42,78,120],[1440,42,91,120],[2400,42,88,120],[3360,42,80,120],[4320,42,99,120],[5280,42,85,120],[6240,42,79,120],[7200,42,104,120],[8160,42,90,120],[9120,42,88,120],[10080,42,76,120],[11040,42,105,120],[12000,42,96,120],[12960,42,77,120],[13920,42,99,120],[14880,42,92,120]],"pc":[],"cc":{},"at":0,"audio":null},"Bass synth":{"n":"Night drive bass","colour":0,"len":15360,"loop":true,"notes":[[0,43,100,200],[480,43,100,200],[960,46,100,200],[1920,36,100,200],[2880,36,100,200],[3360,43,100,200],[3840,48,100,200],[4320,48,100,200],[5280,48,100,200],[5760,46,100,200],[6240,36,100,200],[6720,43,100,200],[7200,36,100,200],[7680,48,100,200],[8160,48,100,200],[8640,43,100,200],[10560,48,100,200],[11520,48,100,200],[12480,36,100,200],[12960,36,100,200],[13440,46,100,200],[13920,43,100,200],[14400,48,100,200],[14880,46,100,200]],"pc":[],"cc":{},"at":0,"audio":null},"Lead synth":{"n":"Night drive lead","colour":0,"len":15360,"loop":true,"notes":[[5760,70,95,960],[6720,67,95,960],[7680,67,95,960],[9600,60,95,960],[11520,60,95,960],[12480,60,95,960],[13440,70,95,960],[14400,60,95,960]],"pc":[],"cc":{},"at":0,"audio":null},"Pad":{"n":"Night drive pad","colour":0,"len":15360,"loop":true,"notes":[[0,48,70,3840],[0,51,70,3840],[0,55,70,3840],[3840,48,70,3840],[3840,51,70,3840],[3840,55,70,3840],[7680,48,70,3840],[7680,51,70,3840],[7680,55,70,3840],[11520,48,70,3840],[11520,51,70,3840],[11520,55,70,3840]],"pc":[],"cc":{},"at":0,"audio":null}}},{"name":"Night drive - 3","colour":15022389,"clips":{"Kicks":{"n":"Night drive kick","colour":0,"len":15360,"loop":true,"notes":[[0,36,120,240],[960,36,120,240],[1920,36,120,240],[2880,36,120,240],[3840,36,120,240],[4800,36,120,240],[5760,36,120,240],[6720,36,120,240],[7680,36,120,240],[8640,36,120,240],[9600,36,120,240],[10560,36,120,240],[11520,36,120,240],[12480,36,120,240],[13440,36,120,240],[14400,36,120,240]],"pc":[],"cc":{},"at":0,"audio":null},"Hats":{"n":"Night drive hats","colour":0,"len":15360,"loop":true,"notes":[[480,42,105,120],[1440,42,86,120],[2400,42,94,120],[3360,42,75,120],[4320,42,77,120],[5280,42,102,120],[6240,42,81,120],[7200,42,94,120],[8160,42,87,120],[9120,42,79,120],[10080,42,95,120],[11040,42,83,120],[12000,42,105,120],[12960,42,86,120],[13920,42,94,120],[14880,42,86,120]],"pc":[],"cc":{},"at":0,"audio":null},"Claps":{"n":"Night drive claps","colour":0,"len":15360,"loop":true,"notes":[[960,39,110,200],[2880,39,110,200],[4800,39,110,200],[6720,39,110,200],[8640,39,110,200],[10560,39,110,200],[12480,39,110,200],[14400,39,110,200]],"pc":[],"cc":{},"at":0,"audio":null},"Bass synth":{"n":"Night drive bass","colour":0,"len":15360,"loop":true,"notes":[[0,36,100,200],[1440,48,100,200],[1920,36,100,200],[2400,43,100,200],[3360,36,100,200],[3840,36,100,200],[4800,36,100,200],[5280,36,100,200],[6240,36,100,200],[6720,43,100,200],[7200,36,100,200],[7680,36,100,200],[8160,46,100,200],[8640,36,100,200],[9120,36,100,200],[11040,46,100,200],[11520,36,100,200],[12960,36,100,200],[13440,43,100,200],[13920,43,100,200],[14880,36,100,200]],"pc":[],"cc":{},"at":0,"audio":null}}},{"name":"Night drive - 4","colour":15022389,"clips":{"Kicks":{"n":"Night drive kick","colour":0,"len":15360,"loop":true,"notes":[[0,36,120,240],[960,36,120,240],[1920,36,120,240],[2880,36,120,240],[3840,36,120,240],[4800,36,120,240],[5760,36,120,240],[6720,36,120,240],[7680,36,120,240],[8640,36,120,240],[9600,36,120,240],[10560,36,120,240],[11520,36,120,240],[12480,36,120,240],[13440,36,120,240],[14400,36,120,240]],"pc":[],"cc":{},"at":0,"audio":null},"Hats":{"n":"Night drive hats","colour":0,"len":15360,"loop":true,"notes":[[480,42,78,120],[1440,42,82,120],[2400,42,90,120],[3360,42,81,120],[4320,42,85,120],[5280,42,81,120],[6240,42,90,120],[7200,42,94,120],[8160,42,103,120],[9120,42,94,120],[10080,42,101,120],[11040,42,75,120],[12000,42,90,120],[12960,42,104,120],[13920,42,95,120],[14880,42,86,120]],"pc":[],"cc":{},"at":0,"audio":null},"Claps":{"n":"Night drive claps","colour":0,"len":15360,"loop":true,"notes":[[960,39,110,200],[2880,39,110,200],[4800,39,110,200],[6720,39,110,200],[8640,39,110,200],[10560,39,110,200],[12480,39,110,200],[14400,39,110,200]],"pc":[],"cc":{},"at":0,"audio":null},"Bass synth":{"n":"Night drive bass","colour":0,"len":15360,"loop":true,"notes":[[480,36,100,200],[2400,36,100,200],[2880,43,100,200],[3360,48,100,200],[3840,36,100,200],[4800,36,100,200],[5280,46,100,200],[6720,46,100,200],[7680,43,100,200],[8160,46,100,200],[8640,36,100,200],[10080,36,100,200],[10560,36,100,200],[11520,43,100,200],[12000,46,100,200],[12480,46,100,200],[12960,46,100,200],[13440,36,100,200],[13920,43,100,200],[14880,46,100,200]],"pc":[],"cc":{},"at":0,"audio":null},"Lead synth":{"n":"Night drive lead","colour":0,"len":15360,"loop":true,"notes":[[0,70,95,960],[960,63,95,960],[2880,67,95,960],[6720,63,95,960],[7680,60,95,960],[9600,70,95,960],[11520,60,95,960],[13440,63,95,960],[14400,60,95,960]],"pc":[],"cc":{},"at":0,"audio":null},"Pad":{"n":"Night drive pad","colour":0,"len":15360,"loop":true,"notes":[[0,48,70,3840],[0,51,70,3840],[0,55,70,3840],[3840,48,70,3840],[3840,51,70,3840],[3840,55,70,3840],[7680,48,70,3840],[7680,51,70,3840],[7680,55,70,3840],[11520,48,70,3840],[11520,51,70,3840],[11520,55,70,3840]],"pc":[],"cc":{},"at":0,"audio":null},"Loops":{"n":"Night drive loop","colour":0,"len":15360,"loop":true,"notes":[],"pc":[],"cc":{},"at":0,"audio":"Night drive loop"}}},{"name":"Low orbit","colour":2001125,"clips":{"Program changes":{"n":"Low orbit prog change 40","colour":0,"len":7680,"loop":false,"notes":[],"pc":[[0,40]],"cc":{},"at":0,"audio":null},"Kicks":{"n":"Low orbit kick","colour":0,"len":15360,"loop":true,"notes":[[0,36,120,240],[960,36,120,240],[1920,36,120,240],[2880,36,120,240],[3840,36,120,240],[4800,36,120,240],[5760,36,120,240],[6720,36,120,240],[7680,36,120,240],[8640,36,120,240],[9600,36,120,240],[10560,36,120,240],[11520,36,120,240],[12480,36,120,240],[13440,36,120,240],[14400,36,120,240]],"pc":[],"cc":{},"at":0,"audio":null},"Bass synth":{"n":"Low orbit bass","colour":0,"len":15360,"loop":true,"notes":[[0,43,100,200],[480,33,100,200],[960,43,100,200],[1920,33,100,200],[2400,45,100,200],[2880,45,100,200],[3360,33,100,200],[3840,40,100,200],[5280,45,100,200],[5760,33,100,200],[6240,40,100,200],[6720,33,100,200],[7200,33,100,200],[7680,33,100,200],[8640,40,100,200],[9120,33,100,200],[10080,33,100,200],[10560,45,100,200],[11040,33,100,200],[11520,45,100,200],[12480,45,100,200],[12960,40,100,200],[13440,40,100,200],[13920,43,100,200],[14400,33,100,200],[14880,43,100,200]],"pc":[],"cc":{},"at":0,"audio":null},"Pad":{"n":"Low orbit pad","colour":0,"len":15360,"loop":true,"notes":[[0,45,70,3840],[0,48,70,3840],[0,52,70,3840],[3840,45,70,3840],[3840,48,70,3840],[3840,52,70,3840],[7680,45,70,3840],[7680,48,70,3840],[7680,52,70,3840],[11520,45,70,3840],[11520,48,70,3840],[11520,52,70,3840]],"pc":[],"cc":{},"at":0,"audio":null}}},{"name":"Low orbit - 2","colour":2001125,"clips":{"Kicks":{"n":"Low orbit kick","colour":0,"len":15360,"loop":true,"notes":[[0,36,120,240],[960,36,120,240],[1920,36,120,240],[2880,36,120,240],[3840,36,120,240],[4800,36,120,240],[5760,36,120,240],[6720,36,120,240],[7680,36,120,240],[8640,36,120,240],[9600,36,120,240],[10560,36,120,240],[11520,36,120,240],[12480,36,120,240],[13440,36,120,240],[14400,36,120,240]],"pc":[],"cc":{},"at":0,"audio":null},"Hats":{"n":"Low orbit hats","colour":0,"len":15360,"loop":true,"notes":[[480,42,94,120],[1440,42,84,120],[2400,42,91,120],[3360,42,105,120],[4320,42,77,120],[5280,42,78,120],[6240,42,104,120],[7200,42,100,120],[8160,42,82,120],[9120,42,103,120],[10080,42,78,120],[11040,42,77,120],[12000,42,83,120],[12960,42,83,120],[13920,42,76,120],[14880,42,103,120]],"pc":[],"cc":{},"at":0,"audio":null},"Bass synth":{"n":"Low orbit bass","colour":0,"len":15360,"loop":true,"notes":[[480,33,100,200],[1920,40,100,200],[2400,43,100,200],[3360,40,100,200],[3840,33,100,200],[4800,33,100,200],[5280,33,100,200],[5760,40,100,200],[6240,33,100,200],[6720,33,100,200],[7200,40,100,200],[8160,40,100,200],[8640,33,100,200],[9120,33,100,200],[10560,33,100,200],[11040,40,100,200],[11520,43,100,200],[12480,43,100,200],[12960,40,100,200],[13440,33,100,200],[14400,33,100,200]],"pc":[],"cc":{},"at":0,"audio":null},"Lead synth":{"n":"Low orbit lead","colour":0,"len":15360,"loop":true,"notes":[[960,64,95,960],[1920,64,95,960],[2880,64,95,960],[7680,60,95,960],[9600,60,95,960],[10560,62,95,960],[13440,62,95,960],[14400,57,95,960]],"pc":[],"cc":{},"at":0,"audio":null},"Pad":{"n":"Low orbit pad","colour":0,"len":15360,"loop":true,"notes":[[0,45,70,3840],[0,48,70,3840],[0,52,70,3840],[3840,45,70,3840],[3840,48,70,3840],[3840,52,70,3840],[7680,45,70,3840],[7680,48,70,3840],[7680,52,70,3840],[11520,45,70,3840],[11520,48,70,3840],[11520,52,70,3840]],"pc":[],"cc":{},"at":0,"audio":null}}},{"name":"Low orbit - 3","colour":2001125,"clips":{"Kicks":{"n":"Low orbit kick","colour":0,"len":15360,"loop":true,"notes":[[0,36,120,240],[960,36,120,240],[1920,36,120,240],[2880,36,120,240],[3840,36,120,240],[4800,36,120,240],[5760,36,120,240],[6720,36,120,240],[7680,36,120,240],[8640,36,120,240],[9600,36,120,240],[10560,36,120,240],[11520,36,120,240],[12480,36,120,240],[13440,36,120,240],[14400,36,120,240]],"pc":[],"cc":{},"at":0,"audio":null},"Hats":{"n":"Low orbit hats","colour":0,"len":15360,"loop":true,"notes":[[480,42,77,120],[1440,42,96,120],[2400,42,101,120],[3360,42,87,120],[4320,42,102,120],[5280,42,91,120],[6240,42,96,120],[7200,42,84,120],[8160,42,94,120],[9120,42,82,120],[10080,42,97,120],[11040,42,84,120],[12000,42,76,120],[12960,42,89,120],[13920,42,80,120],[14880,42,80,120]],"pc":[],"cc":{},"at":0,"audio":null},"Claps":{"n":"Low orbit claps","colour":0,"len":15360,"loop":true,"notes":[[960,39,110,200],[2880,39,110,200],[4800,39,110,200],[6720,39,110,200],[8640,39,110,200],[10560,39,110,200],[12480,39,110,200],[14400,39,110,200]],"pc":[],"cc":{},"at":0,"audio":null},"Bass synth":{"n":"Low orbit bass","colour":0,"len":15360,"loop":true,"notes":[[0,33,100,200],[480,40,100,200],[1440,33,100,200],[1920,40,100,200],[2400,33,100,200],[2880,45,100,200],[3360,40,100,200],[3840,33,100,200],[4320,33,100,200],[4800,33,100,200],[5280,43,100,200],[5760,33,100,200],[6240,33,100,200],[6720,43,100,200],[7680,43,100,200],[8160,40,100,200],[9120,40,100,200],[10080,33,100,200],[11520,45,100,200],[12960,43,100,200],[13920,33,100,200],[14880,33,100,200]],"pc":[],"cc":{},"at":0,"audio":null}}},{"name":"Low orbit - 4","colour":2001125,"clips":{"Kicks":{"n":"Low orbit kick","colour":0,"len":15360,"loop":true,"notes":[[0,36,120,240],[960,36,120,240],[1920,36,120,240],[2880,36,120,240],[3840,36,120,240],[4800,36,120,240],[5760,36,120,240],[6720,36,120,240],[7680,36,120,240],[8640,36,120,240],[9600,36,120,240],[10560,36,120,240],[11520,36,120,240],[12480,36,120,240],[13440,36,120,240],[14400,36,120,240]],"pc":[],"cc":{},"at":0,"audio":null},"Hats":{"n":"Low orbit hats","colour":0,"len":15360,"loop":true,"notes":[[480,42,77,120],[1440,42,75,120],[2400,42,76,120],[3360,42,79,120],[4320,42,95,120],[5280,42,86,120],[6240,42,105,120],[7200,42,78,120],[8160,42,87,120],[9120,42,101,120],[10080,42,89,120],[11040,42,92,120],[12000,42,76,120],[12960,42,95,120],[13920,42,75,120],[14880,42,95,120]],"pc":[],"cc":{},"at":0,"audio":null},"Claps":{"n":"Low orbit claps","colour":0,"len":15360,"loop":true,"notes":[[960,39,110,200],[2880,39,110,200],[4800,39,110,200],[6720,39,110,200],[8640,39,110,200],[10560,39,110,200],[12480,39,110,200],[14400,39,110,200]],"pc":[],"cc":{},"at":0,"audio":null},"Bass synth":{"n":"Low orbit bass","colour":0,"len":15360,"loop":true,"notes":[[0,33,100,200],[480,33,100,200],[960,33,100,200],[1920,43,100,200],[2400,43,100,200],[2880,45,100,200],[3360,33,100,200],[4320,33,100,200],[4800,45,100,200],[5280,45,100,200],[5760,40,100,200],[6720,33,100,200],[7200,33,100,200],[7680,40,100,200],[8160,33,100,200],[8640,33,100,200],[9120,33,100,200],[9600,45,100,200],[10080,43,100,200],[10560,45,100,200],[11040,33,100,200],[12000,40,100,200],[13440,45,100,200],[13920,43,100,200],[14880,40,100,200]],"pc":[],"cc":{},"at":0,"audio":null},"Lead synth":{"n":"Low orbit lead","colour":0,"len":15360,"loop":true,"notes":[[0,60,95,960],[960,57,95,960],[1920,67,95,960],[2880,62,95,960],[3840,67,95,960],[4800,57,95,960],[6720,64,95,960],[7680,60,95,960],[8640,64,95,960],[10560,60,95,960],[11520,64,95,960],[12480,62,95,960],[13440,62,95,960]],"pc":[],"cc":{},"at":0,"audio":null},"Pad":{"n":"Low orbit pad","colour":0,"len":15360,"loop":true,"notes":[[0,45,70,3840],[0,48,70,3840],[0,52,70,3840],[3840,45,70,3840],[3840,48,70,3840],[3840,52,70,3840],[7680,45,70,3840],[7680,48,70,3840],[7680,52,70,3840],[11520,45,70,3840],[11520,48,70,3840],[11520,52,70,3840]],"pc":[],"cc":{},"at":0,"audio":null},"Loops":{"n":"Low orbit loop","colour":0,"len":15360,"loop":true,"notes":[],"pc":[],"cc":{},"at":0,"audio":"Low orbit loop"}}},{"name":"Glass city","colour":9315498,"clips":{"Program changes":{"n":"Glass city prog change 77","colour":0,"len":7680,"loop":false,"notes":[],"pc":[[0,77]],"cc":{},"at":0,"audio":null},"Kicks":{"n":"Glass city kick","colour":0,"len":15360,"loop":true,"notes":[[0,36,120,240],[960,36,120,240],[1920,36,120,240],[2880,36,120,240],[3840,36,120,240],[4800,36,120,240],[5760,36,120,240],[6720,36,120,240],[7680,36,120,240],[8640,36,120,240],[9600,36,120,240],[10560,36,120,240],[11520,36,120,240],[12480,36,120,240],[13440,36,120,240],[14400,36,120,240]],"pc":[],"cc":{},"at":0,"audio":null},"Bass synth":{"n":"Glass city bass","colour":0,"len":15360,"loop":true,"notes":[[0,38,100,200],[1440,45,100,200],[1920,50,100,200],[2880,45,100,200],[4800,38,100,200],[5760,38,100,200],[6240,45,100,200],[6720,45,100,200],[7200,45,100,200],[8160,38,100,200],[9120,48,100,200],[9600,38,100,200],[10080,50,100,200],[10560,38,100,200],[11040,45,100,200],[11520,48,100,200],[12000,50,100,200],[12480,45,100,200],[12960,45,100,200],[13440,38,100,200],[13920,48,100,200],[14400,38,100,200],[14880,38,100,200]],"pc":[],"cc":{},"at":0,"audio":null},"Pad":{"n":"Glass city pad","colour":0,"len":15360,"loop":true,"notes":[[0,50,70,3840],[0,53,70,3840],[0,57,70,3840],[3840,50,70,3840],[3840,53,70,3840],[3840,57,70,3840],[7680,50,70,3840],[7680,53,70,3840],[7680,57,70,3840],[11520,50,70,3840],[11520,53,70,3840],[11520,57,70,3840]],"pc":[],"cc":{},"at":0,"audio":null}}},{"name":"Glass city - 2","colour":9315498,"clips":{"Kicks":{"n":"Glass city kick","colour":0,"len":15360,"loop":true,"notes":[[0,36,120,240],[960,36,120,240],[1920,36,120,240],[2880,36,120,240],[3840,36,120,240],[4800,36,120,240],[5760,36,120,240],[6720,36,120,240],[7680,36,120,240],[8640,36,120,240],[9600,36,120,240],[10560,36,120,240],[11520,36,120,240],[12480,36,120,240],[13440,36,120,240],[14400,36,120,240]],"pc":[],"cc":{},"at":0,"audio":null},"Hats":{"n":"Glass city hats","colour":0,"len":15360,"loop":true,"notes":[[480,42,77,120],[1440,42,81,120],[2400,42,91,120],[3360,42,103,120],[4320,42,100,120],[5280,42,90,120],[6240,42,92,120],[7200,42,82,120],[8160,42,89,120],[9120,42,104,120],[10080,42,85,120],[11040,42,99,120],[12000,42,89,120],[12960,42,88,120],[13920,42,79,120],[14880,42,92,120]],"pc":[],"cc":{},"at":0,"audio":null},"Bass synth":{"n":"Glass city bass","colour":0,"len":15360,"loop":true,"notes":[[0,38,100,200],[480,48,100,200],[960,38,100,200],[1440,48,100,200],[1920,38,100,200],[2880,50,100,200],[3840,45,100,200],[4320,38,100,200],[4800,48,100,200],[5760,48,100,200],[6240,38,100,200],[6720,38,100,200],[7200,50,100,200],[7680,45,100,200],[9120,38,100,200],[9600,50,100,200],[10560,38,100,200],[11040,48,100,200],[12480,38,100,200],[12960,38,100,200],[13440,38,100,200],[14880,50,100,200]],"pc":[],"cc":{},"at":0,"audio":null},"Lead synth":{"n":"Glass city lead","colour":0,"len":15360,"loop":true,"notes":[[0,62,95,960],[960,65,95,960],[1920,62,95,960],[3840,65,95,960],[6720,62,95,960],[7680,67,95,960],[10560,65,95,960],[12480,72,95,960],[13440,69,95,960],[14400,67,95,960]],"pc":[],"cc":{},"at":0,"audio":null},"Pad":{"n":"Glass city pad","colour":0,"len":15360,"loop":true,"notes":[[0,50,70,3840],[0,53,70,3840],[0,57,70,3840],[3840,50,70,3840],[3840,53,70,3840],[3840,57,70,3840],[7680,50,70,3840],[7680,53,70,3840],[7680,57,70,3840],[11520,50,70,3840],[11520,53,70,3840],[11520,57,70,3840]],"pc":[],"cc":{},"at":0,"audio":null}}},{"name":"Glass city - 3","colour":9315498,"clips":{"Kicks":{"n":"Glass city kick","colour":0,"len":15360,"loop":true,"notes":[[0,36,120,240],[960,36,120,240],[1920,36,120,240],[2880,36,120,240],[3840,36,120,240],[4800,36,120,240],[5760,36,120,240],[6720,36,120,240],[7680,36,120,240],[8640,36,120,240],[9600,36,120,240],[10560,36,120,240],[11520,36,120,240],[12480,36,120,240],[13440,36,120,240],[14400,36,120,240]],"pc":[],"cc":{},"at":0,"audio":null},"Hats":{"n":"Glass city hats","colour":0,"len":15360,"loop":true,"notes":[[480,42,95,120],[1440,42,101,120],[2400,42,103,120],[3360,42,82,120],[4320,42,90,120],[5280,42,91,120],[6240,42,82,120],[7200,42,92,120],[8160,42,82,120],[9120,42,75,120],[10080,42,105,120],[11040,42,88,120],[12000,42,97,120],[12960,42,95,120],[13920,42,84,120],[14880,42,76,120]],"pc":[],"cc":{},"at":0,"audio":null},"Claps":{"n":"Glass city claps","colour":0,"len":15360,"loop":true,"notes":[[960,39,110,200],[2880,39,110,200],[4800,39,110,200],[6720,39,110,200],[8640,39,110,200],[10560,39,110,200],[12480,39,110,200],[14400,39,110,200]],"pc":[],"cc":{},"at":0,"audio":null},"Bass synth":{"n":"Glass city bass","colour":0,"len":15360,"loop":true,"notes":[[0,50,100,200],[960,38,100,200],[1440,50,100,200],[2400,38,100,200],[2880,50,100,200],[3360,50,100,200],[3840,45,100,200],[4800,38,100,200],[5280,38,100,200],[5760,38,100,200],[6240,38,100,200],[6720,45,100,200],[7200,48,100,200],[7680,38,100,200],[8640,38,100,200],[9600,50,100,200],[10080,38,100,200],[11040,38,100,200],[12000,50,100,200],[14880,38,100,200]],"pc":[],"cc":{},"at":0,"audio":null}}},{"name":"Glass city - 4","colour":9315498,"clips":{"Kicks":{"n":"Glass city kick","colour":0,"len":15360,"loop":true,"notes":[[0,36,120,240],[960,36,120,240],[1920,36,120,240],[2880,36,120,240],[3840,36,120,240],[4800,36,120,240],[5760,36,120,240],[6720,36,120,240],[7680,36,120,240],[8640,36,120,240],[9600,36,120,240],[10560,36,120,240],[11520,36,120,240],[12480,36,120,240],[13440,36,120,240],[14400,36,120,240]],"pc":[],"cc":{},"at":0,"audio":null},"Hats":{"n":"Glass city hats","colour":0,"len":15360,"loop":true,"notes":[[480,42,95,120],[1440,42,104,120],[2400,42,91,120],[3360,42,98,120],[4320,42,89,120],[5280,42,76,120],[6240,42,84,120],[7200,42,96,120],[8160,42,98,120],[9120,42,87,120],[10080,42,101,120],[11040,42,86,120],[12000,42,85,120],[12960,42,89,120],[13920,42,80,120],[14880,42,78,120]],"pc":[],"cc":{},"at":0,"audio":null},"Claps":{"n":"Glass city claps","colour":0,"len":15360,"loop":true,"notes":[[960,39,110,200],[2880,39,110,200],[4800,39,110,200],[6720,39,110,200],[8640,39,110,200],[10560,39,110,200],[12480,39,110,200],[14400,39,110,200]],"pc":[],"cc":{},"at":0,"audio":null},"Bass synth":{"n":"Glass city bass","colour":0,"len":15360,"loop":true,"notes":[[0,45,100,200],[480,50,100,200],[1440,38,100,200],[1920,45,100,200],[2880,38,100,200],[3840,48,100,200],[4800,45,100,200],[5760,50,100,200],[6240,50,100,200],[6720,38,100,200],[7200,38,100,200],[7680,38,100,200],[8640,45,100,200],[9120,48,100,200],[9600,45,100,200],[10560,48,100,200],[11520,38,100,200],[12000,38,100,200],[12480,50,100,200],[13440,45,100,200],[14880,50,100,200]],"pc":[],"cc":{},"at":0,"audio":null},"Lead synth":{"n":"Glass city lead","colour":0,"len":15360,"loop":true,"notes":[[0,67,95,960],[3840,67,95,960],[4800,72,95,960],[5760,65,95,960],[6720,65,95,960],[7680,62,95,960],[9600,72,95,960],[10560,69,95,960],[13440,62,95,960],[14400,69,95,960]],"pc":[],"cc":{},"at":0,"audio":null},"Pad":{"n":"Glass city pad","colour":0,"len":15360,"loop":true,"notes":[[0,50,70,3840],[0,53,70,3840],[0,57,70,3840],[3840,50,70,3840],[3840,53,70,3840],[3840,57,70,3840],[7680,50,70,3840],[7680,53,70,3840],[7680,57,70,3840],[11520,50,70,3840],[11520,53,70,3840],[11520,57,70,3840]],"pc":[],"cc":{},"at":0,"audio":null},"Loops":{"n":"Glass city loop","colour":0,"len":15360,"loop":true,"notes":[],"pc":[],"cc":{},"at":0,"audio":"Glass city loop"}}}],"note":"A made-up demo set. Try selecting, dragging, renaming and colouring rows here, then open your own MPC 3 project (.xpj) to save a copy."}</script>
+<script>
+// Splits the clip-matrix row array out of an MPC 3 project's JSON text and rebuilds it,
+// leaving every other byte of the file untouched.
+function findRowArray(text){ return findArray(text,'"sharedClipMatrixData":','This project has no clip matrix rows.'); }
+function findTrackArray(text){ return findArray(text,'"tracks":','This project has no track list.'); }
+function findArray(text,key,missing){
+  const k=text.indexOf(key); if(k<0) throw new Error(missing);
+  const open=text.indexOf('[',k+key.length);
+  const items=[]; let depth=0, inStr=false, start=-1;
+  for(let i=open+1;i<text.length;i++){
+    const ch=text.charCodeAt(i);
+    if(inStr){ if(ch===92){i++;continue;} if(ch===34) inStr=false; continue; }
+    if(ch===34){inStr=true; continue;}
+    if(ch===123||ch===91){ if(depth===0) start=i; depth++; }
+    else if(ch===125||ch===93){
+      if(depth===0){
+        const close=i;
+        const sep=items.length>1?text.slice(items[0][1],items[1][0]):',\n';
+        const lead=items.length?text.slice(open+1,items[0][0]):'\n';
+        const tail=items.length?text.slice(items[items.length-1][1],close):'\n';
+        return {open,close,items,sep,lead,tail};
+      }
+      depth--; if(depth===0) items.push([start,i+1]);
+    }
+  }
+  throw new Error('The clip matrix data is incomplete.');
+}
+const NAME_RE=/"name": "(?:[^"\\]|\\.)*"/;
+function setFirst(t,from,re,val){
+  const m=re.exec(t.slice(from)); if(!m) return t;
+  const a=from+m.index; return t.slice(0,a)+val+t.slice(a+m[0].length);
+}
+// row: {src, name?, colour?, clips?: {trackName: {name?, colour?}}}
+function editRow(t,row){
+  if(row.clips){
+    for(const [track,ed] of Object.entries(row.clips)){
+      const k=t.indexOf('"key": '+JSON.stringify(track)); if(k<0) continue;
+      if(ed.colour!=null) t=setFirst(t,k,/"colour": -?\d+/, '"colour": '+(ed.colour|0));
+      if(ed.name!=null) t=setFirst(t,k,NAME_RE,'"name": '+JSON.stringify(ed.name));
+    }
+  }
+  // the row's own fields come before its clips
+  if(row.colour!=null) t=setFirst(t,0,/"optionalColour": -?\d+/,'"optionalColour": '+(row.colour|0));
+  if(row.name!=null) t=setFirst(t,0,NAME_RE,'"name": '+JSON.stringify(row.name));
+  return t;
+}
+function arrayBody(arr,parts){ return parts.length?arr.lead+parts.join(arr.sep)+arr.tail:''; }
+function rebuild(text,arr,rows,tarr,trackOrder){
+  // rows array comes after the track list in the file, so replace it first and the earlier offsets stay valid
+  const parts=rows.map(r=>editRow(text.slice(arr.items[r.src][0],arr.items[r.src][1]),r));
+  let out=text.slice(0,arr.open+1)+arrayBody(arr,parts)+text.slice(arr.close);
+  if(tarr&&trackOrder&&tarr.open<arr.open){
+    const tparts=trackOrder.map(i=>text.slice(tarr.items[i][0],tarr.items[i][1]));
+    out=out.slice(0,tarr.open+1)+arrayBody(tarr,tparts)+out.slice(tarr.close);
+  }
+  // when rows were removed, row numbers the MPC remembers (last selected row, playing clips, matrix scroll) could point past the end
+  if(rows.length!==arr.items.length || rows.some((r,i)=>r.src!==i)){
+    out=out.replace(/"currentClipRow": (-?\d+)/,(m,n)=>'"currentClipRow": '+Math.max(0,Math.min(+n,rows.length-1)));
+    out=out.replace(/"originY": \d+/g,'"originY": 0');
+    try{ const t=findArray(out,'"trackClipTransportMap":','');
+      out=out.slice(0,t.open+1)+out.slice(t.close); }catch(e){}
+  }
+  return out;
+}
+if(typeof module!=='undefined') module.exports={findRowArray,findTrackArray,rebuild};
+
+</script>
+<script>
+(function(){
+const TYPES={0:['Drum','--drum'],1:['Keygroup','--kg'],2:['Clip','--other'],3:['Plugin','--plugin'],4:['MIDI','--midi'],5:['CV','--other'],6:['Audio','--audio'],7:['Return','--other'],8:['Submix','--other'],9:['Output','--other']};
+const PALETTE=[0xE53935,0xF4511E,0xFB8C00,0xFDD835,0xC0CA33,0x43A047,0x00897B,0x00ACC1,0x1E88E5,0x3949AB,0x8E24AA,0xD81B60,0x6D4C41,0x757575,0xFFFFFF];
+const PPQ=960, NN=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const noteName=n=>NN[n%12]+(Math.floor(n/12)-2);
+const $=id=>document.getElementById(id);
+let S=null, RAW=null;            // S: what's shown; RAW: {head,text,arr} of the opened file (null for the example)
+let selTracks=new Set(), tanchor=null, dragKind=null;
+let selRows=new Set(), anchor=null, selClip=null, clipboard=[], undoStack=[], redoStack=[], savedNote='';
+let downloads=null;
+try{ window.claude&&window.claude.use&&window.claude.use('downloads').then(d=>{downloads=d; updateBar();}); }catch(e){}
+
+/* ---------- reading an MPC 3 .xpj (text header + gzip JSON) ---------- */
+async function readXpj(file){
+  const head=new Uint8Array(await file.slice(0,2).arrayBuffer());
+  if(!(head[0]===0x1f&&head[1]===0x8b)) throw new Error('This file isn’t an MPC 3 project. MPC 3 .xpj files are compressed; MPC 2 projects use a different format.');
+  if(typeof DecompressionStream==='undefined') throw new Error('This browser can’t unpack the project. Use a current Safari, Chrome or Firefox.');
+  const buf=new Uint8Array(await new Response(file.stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+  const cut=buf.indexOf(0x7b); if(cut<0) throw new Error('No project data found inside the file.');
+  const headText=new TextDecoder().decode(buf.subarray(0,cut));
+  const text=new TextDecoder().decode(buf.subarray(cut));
+  const arr=findRowArray(text);
+  const s=summarise(JSON.parse(text).data, file.name, headText.split('\n')[1]||'');
+  if(arr.items.length!==s.rows.length) throw new Error('The rows in this project could not be matched up safely, so editing is turned off.');
+  let tarr=null; try{ tarr=findTrackArray(text); if(tarr.items.length!==s.tracks.length||tarr.open>arr.open) tarr=null; }catch(e){ tarr=null; }
+  return {s, raw:{head:headText,text,arr,tarr,size:file.size}};
+}
+function summarise(P,fname,version){
+  const tracks=P.tracks.map(t=>{
+    const pg=t.program||{}, o=t.midiOutputRoute||{}, dev=(o.outputPort||{}).deviceName||'<none>';
+    const tr={name:t.name,type:pg.type,out:dev==='<none>'?null:{dev,ch:(o.outputChannel||0)+1}};
+    if(pg.drum) tr.pads=pg.drum.instruments.filter(i=>(i.layersv||[]).some(l=>l.sampleName)).length;
+    if(pg.plugin&&pg.plugin.plugin){const pp=pg.plugin.plugin; tr.plugin={name:(pp.description||{}).name,preset:pp.presetName};}
+    return tr;});
+  const rows=P.sharedClipMatrixData.map(r=>{
+    const clips={};
+    for(const c of r.clips){
+      const v=c.value, ev=v.eventList.events, notes=[], pc=[], cc={}; let at=0, audio=null;
+      for(const e of ev){
+        if(e.type===3) notes.push([e.time,e.note.note,Math.round(e.note.velocity*127),e.note.length]);
+        else if(e.type===1){const a=e.automation,p=a.parameter,val=Math.round(a.value*127);
+          if(p===130) pc.push([e.time,val]); else if(p===131) at++; else if(p<128) cc[p]=(cc[p]||0)+1;}
+        else if(e.type===4&&e.audio) audio=((e.audio.sample)||{}).name||e.audio.name;
+      }
+      clips[c.key]={n:v.name,colour:v.colour||0,len:v.endPulses,loop:v.loop,notes,pc,cc,at,audio};
+    }
+    return {name:r.name,colour:r.optionalColour||0,clips};});
+  return {file:fname,version,bpm:P.masterTempo,tempoOn:P.masterTempoEnabled,tracks,rows};
+}
+function prepare(s){ // remember where each row and track came from and what it was called
+  s.tracks.forEach((t,i)=>{ t._src=i; });
+  s.rows.forEach((r,i)=>{ r._src=i; r._name=r.name; r._colour=r.colour;
+    for(const c of Object.values(r.clips)){ c._name=c.n; c._colour=c.colour||0; } });
+  return s;
+}
+
+/* ---------- edit state ---------- */
+function snapshot(){ return {tracks:S.tracks.slice(), rows:snapRows()}; }
+function snapRows(){ return S.rows.map(r=>({r,name:r.name,colour:r.colour,clips:Object.fromEntries(Object.entries(r.clips).map(([k,c])=>[k,[c.n,c.colour]]))})); }
+function restore(snap){ S.tracks=snap.tracks; restoreRows(snap.rows); }
+function restoreRows(snap){ S.rows=snap.map(x=>{ x.r.name=x.name; x.r.colour=x.colour; for(const [k,[n,col]] of Object.entries(x.clips)){ x.r.clips[k].n=n; x.r.clips[k].colour=col; } return x.r; }); }
+function change(fn,label){ undoStack.push(snapshot()); if(undoStack.length>200) undoStack.shift(); redoStack=[]; fn(); savedNote=''; afterChange(); if(label) toast(label,true); }
+function afterChange(){ pruneSel(); render(); inspector(); storeDraft(); }
+function pruneSel(){ const lt=new Set(S.tracks); for(const t of [...selTracks]) if(!lt.has(t)) selTracks.delete(t); const live=new Set(S.rows); for(const r of [...selRows]) if(!live.has(r)) selRows.delete(r); if(selClip&&!live.has(selClip.row)) selClip=null; }
+function isDirty(){ return S.tracks.some((t,i)=>t._src!==i) || S.rows.length!==S._n0 || S.rows.some((r,i)=>r._src!==i||r._copy||r.name!==r._name||r.colour!==r._colour||Object.values(r.clips).some(c=>c.n!==c._name||c.colour!==c._colour)); }
+function orderedSel(){ return S.rows.filter(r=>selRows.has(r)); }
+function cloneRow(r,newName){
+  const c={...r,clips:{},_copy:true,name:newName};
+  for(const [k,v] of Object.entries(r.clips)) c.clips[k]={...v};
+  return c;
+}
+
+/* ---------- draft kept in this browser ---------- */
+const draftKey=()=>RAW?('clip-librarian:'+S.file+':'+RAW.size):null;
+function storeDraft(){ const k=draftKey(); if(!k) return;
+  try{ if(!isDirty()){ localStorage.removeItem(k); return; }
+    localStorage.setItem(k,JSON.stringify({at:Date.now(),tracks:S.tracks.map(t=>t._src),rows:S.rows.map(r=>({src:r._src,copy:!!r._copy,name:r.name,colour:r.colour,clips:Object.fromEntries(Object.entries(r.clips).map(([kk,c])=>[kk,[c.n,c.colour]]))}))})); }catch(e){} }
+function loadDraft(){ const k=draftKey(); if(!k) return null; try{ return JSON.parse(localStorage.getItem(k)||'null'); }catch(e){ return null; } }
+function applyDraft(d){
+  const base=S._base;
+  const tb=S._tbase;
+  change(()=>{ if(Array.isArray(d.tracks)&&d.tracks.length===tb.length) S.tracks=d.tracks.map(i=>tb[i]).filter(Boolean); S.rows=d.rows.map(x=>{ const o=base[x.src]; if(!o) return null; const r=x.copy?cloneRow(o,x.name):o; r.name=x.name; r.colour=x.colour;
+      for(const [k,[n,col]] of Object.entries(x.clips||{})) if(r.clips[k]){ r.clips[k].n=n; r.clips[k].colour=col; } return r; }).filter(Boolean); },'Restored your unsaved edits');
+}
+
+/* ---------- operations ---------- */
+function moveBlock(targetIndex){ // insert the selected rows before S.rows[targetIndex] (or at end)
+  const block=orderedSel(); if(!block.length) return;
+  const rest=S.rows.filter(r=>!selRows.has(r));
+  const before=S.rows.slice(0,targetIndex).filter(r=>!selRows.has(r)).length;
+  rest.splice(before,0,...block); S.rows=rest;
+}
+function nudge(dir){
+  const vis=visibleRows(); const block=orderedSel(); if(!block.length) return;
+  const vi=block.map(r=>vis.indexOf(r)).filter(i=>i>=0); if(!vi.length) return;
+  if(dir<0){ const first=Math.min(...vi); if(first===0) return; const target=vis[first-1]; change(()=>moveBlock(S.rows.indexOf(target))); }
+  else{ const last=Math.max(...vi); if(last>=vis.length-1) return; const target=vis[last+1]; change(()=>moveBlock(S.rows.indexOf(target)+1)); }
+}
+const isMix=t=>[7,8,9].includes(t.type);
+function orderedTSel(){ return S.tracks.filter(t=>selTracks.has(t)); }
+function moveTracks(targetIndex){ // insert the selected tracks before S.tracks[targetIndex]; mixer tracks stay at the end
+  const block=orderedTSel().filter(t=>!isMix(t)); if(!block.length) return;
+  const real=S.tracks.filter(t=>!isMix(t)), mix=S.tracks.filter(isMix);
+  const before=S.tracks.slice(0,targetIndex).filter(t=>!isMix(t)&&!selTracks.has(t)).length;
+  const rest=real.filter(t=>!selTracks.has(t)); rest.splice(before,0,...block); S.tracks=rest.concat(mix);
+}
+function nudgeTracks(dir){
+  const vis=visibleTracks().filter(t=>!isMix(t)); const block=orderedTSel().filter(t=>!isMix(t)); if(!block.length) return;
+  const vi=block.map(t=>vis.indexOf(t)).filter(i=>i>=0); if(!vi.length) return;
+  const n=block.length, lbl=`Moved ${n} track${n>1?'s':''}`;
+  if(dir<0){ const first=Math.min(...vi); if(first===0) return; change(()=>moveTracks(S.tracks.indexOf(vis[first-1])),lbl); }
+  else{ const last=Math.max(...vi); if(last>=vis.length-1) return; change(()=>moveTracks(S.tracks.indexOf(vis[last+1])+1),lbl); }
+}
+function doCopy(){ const b=orderedSel(); if(!b.length) return; clipboard=b; toast(`Copied ${b.length} row${b.length>1?'s':''}`); updateBar(); }
+function doPaste(){
+  if(!clipboard.length) return;
+  const sel=orderedSel(); const at=sel.length?S.rows.indexOf(sel[sel.length-1])+1:S.rows.length;
+  const copies=clipboard.map(r=>cloneRow(r,r.name+' copy'));
+  change(()=>{ S.rows.splice(at,0,...copies); selRows=new Set(copies); anchor=copies[0]; },`Pasted ${copies.length} row${copies.length>1?'s':''}`);
+}
+function doDelete(){ const b=orderedSel(); if(!b.length) return; change(()=>{ S.rows=S.rows.filter(r=>!selRows.has(r)); selRows.clear(); },`Deleted ${b.length} row${b.length>1?'s':''}`); }
+function doUndo(){ if(!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); afterChange(); }
+function doRedo(){ if(!redoStack.length) return; undoStack.push(snapshot()); restore(redoStack.pop()); afterChange(); }
+
+/* ---------- saving a copy ---------- */
+async function doSave(opts={}){
+  if(!RAW){ toast('Open your own .xpj project to save a copy. The built-in example can be edited but not saved.'); return; }
+  const standalone=!window.claude;   // opened from a file or your own website: save with a normal browser download
+  if(!downloads&&!standalone){ toast('Saving isn’t available in this view. Open the page in claude.ai to save.'); return; }
+  const btn=opts.btn||$('save'), label=btn.textContent; btn.disabled=true; btn.textContent='Preparing…';
+  try{
+    const source=opts.subset||S.rows;
+    const rows=source.map(r=>{ const o={src:r._src}; if(r.name!==r._name) o.name=r.name; if(r.colour!==r._colour) o.colour=r.colour;
+      const ce={}; for(const [k,c] of Object.entries(r.clips)){ const e={}; if(c.n!==c._name) e.name=c.n; if(c.colour!==c._colour) e.colour=c.colour; if(Object.keys(e).length) ce[k]=e; }
+      if(Object.keys(ce).length) o.clips=ce; return o; });
+    const text=RAW.head+rebuild(RAW.text,RAW.arr,rows,RAW.tarr,RAW.tarr?S.tracks.map(t=>t._src):null);
+    const gz=await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+    const base=S.file.replace(/\.xpj$/i,'');
+    const name=(opts.name||base+' (Clip Librarian)').replace(/[\\/:*?"<>|]+/g,'-').trim()||base+' extract';
+    if(standalone){
+      const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([gz],{type:'application/octet-stream'})); a.download=name+'.xpj';
+      document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},4000);
+      if(!opts.subset) savedNote='Saved '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      toast(`Saved ${name}.xpj to your Downloads. Copy ${base}_[ProjectData] next to it and rename the copy ${name}_[ProjectData].`);
+      return;
+    }
+    if(typeof JSZip==='undefined') throw {code:'zip'};
+    const zip=new JSZip(); zip.file(name+'.xpj',gz,{compression:'STORE'});
+    zip.file('README.txt',`Saved by Clip Librarian on ${new Date().toLocaleString()}\n\n${name}.xpj is ${opts.subset?`a new project made from ${source.length} row${source.length>1?'s':''} of ${S.file} (${source.map(r=>r.name).join(', ')}). All tracks, programs and mixer settings are kept`:`an edited copy of ${S.file}`}. The original project is unchanged.\n\nTo open it on the MPC: put ${name}.xpj in the same folder as your original project, make a copy of the folder\n  ${base}_[ProjectData]\nand rename the copy to\n  ${name}_[ProjectData]\nso the MPC finds the samples.\n`);
+    const blob=await zip.generateAsync({type:'blob',compression:'STORE'});
+    await downloads.save({filename:name+'.zip',data:blob});
+    if(!opts.subset) savedNote='Saved '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    toast(`Saved ${name}.zip. Unzip it to get ${name}.xpj.`);
+  }catch(e){
+    const code=e&&e.code;
+    toast(code==='declined'?'Save cancelled.':code==='zip'?'The zip tool didn’t load. Reload the page and try again.':code==='rate_limited'?'A save prompt is already open.':'Saving didn’t work here. '+((e&&e.message)||''));
+  }finally{ btn.textContent=label; btn.disabled=false; updateBar(); }
+}
+
+/* ---------- rendering ---------- */
+const hex=c=>'#'+((c>>>0)&0xffffff).toString(16).padStart(6,'0');
+const bars=p=>{const b=p/(PPQ*4);return (Math.round(b*100)/100)+(b===1?' bar':' bars');};
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const outLabel=o=>o?o.dev.replace('MPC LIVE III ','').replace('MPC X ','')+' ch'+o.ch:'internal';
+function visibleTracks(){return S.tracks.filter(t=>!($('hideMix').checked&&[7,8,9].includes(t.type)));}
+function visibleRows(){ const q=$('q').value.trim().toLowerCase();
+  return S.rows.filter(r=>!($('hideEmptyRows').checked&&!Object.keys(r.clips).length)&&!(q&&!r.name.toLowerCase().includes(q))); }
+function render(){
+  const tv=visibleTracks(), vr=visibleRows();
+  const nClips=S.rows.reduce((a,r)=>a+Object.keys(r.clips).length,0);
+  const nNotes=S.rows.reduce((a,r)=>a+Object.values(r.clips).reduce((b,c)=>b+c.notes.length,0),0);
+  const real=S.tracks.filter(t=>![7,8,9].includes(t.type)).length;
+  $('stats').innerHTML=`<span><b>${S.rows.length}</b> rows</span><span><b>${real}</b> tracks</span><span><b>${nClips}</b> clips</span><span><b>${nNotes.toLocaleString()}</b> notes</span><span>Tempo <b>${S.bpm??'–'}</b>${S.tempoOn?' (master)':''}</span>`;
+  let h='<thead><tr><th class="corner rowhead" style="cursor:default"><div class="rh"><span class="ri">#</span><span class="rn" style="color:var(--muted);font-weight:500">Row</span></div></th>';
+  const tpos=new Map(S.tracks.map((t,i)=>[t,i]));
+  const canMoveT=!RAW||RAW.tarr;
+  tv.forEach((t,k)=>{const ty=TYPES[t.type]||['?','--other']; const ti=tpos.get(t); const mv=t._src!==ti;
+    h+=`<th class="colhead${selTracks.has(t)?' selcol':''}" data-ti="${ti}" ${!isMix(t)&&canMoveT?'draggable="true" tabindex="0"':''} title="${esc(t.name)}${!isMix(t)?' (click to select, drag to move)':''}"><span class="num">${k+1}${mv?`<span class="was">was ${t._src+1}</span>`:''}</span><span class="tn">${esc(t.name)}</span><span class="tt"><i style="background:var(${ty[1]})"></i>${ty[0]}${t.out?' · '+esc(outLabel(t.out)):''}</span></th>`;});
+  h+='</tr></thead><tbody>';
+  const pos=new Map(S.rows.map((r,i)=>[r,i]));
+  for(const r of vr){
+    const ri=pos.get(r);
+    const isCopyRow=/ - [2-9]$/.test(r.name);
+    const moved=r._copy?`copy of ${r._src+1}`:(r._src!==ri?`was ${r._src+1}`:'');
+    const edited=r.name!==r._name||r.colour!==r._colour;
+    h+=`<tr data-i="${ri}" class="${isCopyRow?'copy ':''}${selRows.has(r)?'selrow':''}"><th class="rowhead" scope="row" draggable="true" tabindex="0" data-i="${ri}"><div class="rh"><span class="sw" style="background:${r.colour?hex(r.colour):'transparent'}"></span><span class="ri">${ri+1}</span><span class="rtext"><span class="rn" title="${esc(r.name)} (double-click to rename)">${esc(r.name)}</span>${moved||edited?`<span class="was${r._copy?' chg':''}">${esc(moved)}${edited&&!r._copy?(moved?' · ':'')+'edited':''}</span>`:''}</span></div></th>`;
+    for(const t of tv){
+      const c=r.clips[t.name];
+      const sc=selTracks.has(t)?' selcol':'';
+      if(!c){h+=`<td class="c${sc}"><span class="empty"></span></td>`;continue;}
+      const ty=TYPES[t.type]||['?','--other'];
+      const meta=c.audio?'audio':(c.notes.length+' n');
+      const pcs=c.pc.length?`<span class="pc">PC ${[...new Set(c.pc.map(p=>p[1]))].join(',')}</span>`:'';
+      const isSel=selClip&&selClip.row===r&&selClip.t===t.name;
+      h+=`<td class="c${sc}"><button class="cell${isSel?' sel':''}" style="--tc:var(${ty[1]})" data-i="${ri}" data-t="${esc(t.name)}" title="${esc(c.n)}">${c.colour?`<span class="cdot" style="background:${hex(c.colour)}"></span>`:''}<span class="cn">${esc(c.n)}</span><span class="cm"><span>${bars(c.len)}</span><span>${meta}</span>${pcs}</span></button></td>`;
+    }
+    h+='</tr>';
+  }
+  h+='</tbody>';
+  $('grid').innerHTML=h;
+  const q=$('q').value.trim();
+  $('banner').innerHTML=`<span class="tag">${esc(S.file)}</span>${S.sample?`<span>${esc(S.note||'Built-in example set. Try editing it here, then open your own MPC 3 project to save a copy.')}</span>`:`<span>MPC ${esc(S.version)} · your original file is never changed</span>`}${q?`<span>${vr.length} rows match</span>`:''}`;
+  $('legend').innerHTML=[0,4,3,1,6].map(k=>`<span><i style="background:var(${TYPES[k][1]})"></i>${TYPES[k][0]}</span>`).join('')+'<span style="color:var(--accent)">PC = program change</span>';
+  updateBar();
+}
+function updateBar(){
+  if(!S) return;
+  const n=selRows.size, nt=selTracks.size;
+  $('selinfo').textContent=(n||nt)?[n?`${n} row${n>1?'s':''}`:'',nt?`${nt} track${nt>1?'s':''}`:''].filter(Boolean).join(' and ')+' selected':'Click a row name or track name to select. Shift or Cmd/Ctrl for several.';
+  $('tleft').disabled=$('tright').disabled=!nt||(RAW&&!RAW.tarr);
+  $('up').disabled=$('down').disabled=$('copy').disabled=$('del').disabled=!n;
+  $('paste').disabled=!clipboard.length; $('undo').disabled=!undoStack.length; $('redo').disabled=!redoStack.length;
+  const dirty=isDirty();
+  $('dirty').innerHTML=savedNote?`<span class="saved">${esc(savedNote)}</span>`:dirty?`<span class="dirty">Unsaved changes${RAW?' · kept in this browser':''}</span>`:'';
+  $('save').disabled=!RAW;
+  $('save').title=RAW?(!window.claude?'Save an edited copy (.xpj)':downloads?'Save an edited copy as a .zip':'Saving works when the page is open in claude.ai'):'Open a project first';
+}
+function swatches(cur,allowNone,attr){
+  return `<div class="swatches">${allowNone?`<button class="sw-btn none${!cur?' on':''}" data-${attr}="0" title="No colour" aria-label="No colour"></button>`:''}${PALETTE.map(c=>`<button class="sw-btn${cur===c?' on':''}" style="background:${hex(c)}" data-${attr}="${c}" title="${hex(c)}" aria-label="Colour ${hex(c)}"></button>`).join('')}${cur&&!PALETTE.includes(cur)?`<button class="sw-btn on" style="background:${hex(cur)}" data-${attr}="${cur}" title="Current colour ${hex(cur)}"></button>`:''}</div>`;
+}
+function inspector(){
+  const box=$('insp');
+  if(selClip){ clipPanel(box); return; }
+  const rs=orderedSel();
+  if(!rs.length&&selTracks.size){
+    const ts=orderedTSel();
+    box.innerHTML=`<div><h2>${ts.length===1?esc(ts[0].name):ts.length+' tracks'}</h2><div class="sub">${ts.length===1?`Track ${S.tracks.indexOf(ts[0])+1}${ts[0]._src!==S.tracks.indexOf(ts[0])?` · originally ${ts[0]._src+1}`:''}`:'Selected tracks'}</div></div>
+      <dl class="kv">${ts.map(t=>`<dt>${S.tracks.indexOf(t)+1}</dt><dd>${esc(t.name)} <span style="color:var(--muted)">${(TYPES[t.type]||['?'])[0]} · ${esc(outLabel(t.out))}</span></dd>`).join('')}</dl>
+      <p class="hint">Drag the track names left or right, or use ← Track and Track →. Clips stay with their track. Submixes, returns and outputs stay at the end.</p>
+      ${RAW&&!RAW.tarr?'<p class="hint err">Track order can’t be changed safely in this project.</p>':''}
+      <div class="sec">Shortcuts</div>${keysHelp()}`;
+    return;
+  }
+  if(rs.length){
+    const one=rs.length===1?rs[0]:null;
+    const cur=one?one.colour:(rs.every(r=>r.colour===rs[0].colour)?rs[0].colour:null);
+    box.innerHTML=`<div><h2>${one?esc(one.name):rs.length+' rows'}</h2><div class="sub">${one?`Row ${S.rows.indexOf(one)+1} · ${Object.keys(one.clips).length} clips${one._src!==S.rows.indexOf(one)||one._copy?` · originally row ${one._src+1}`:''}`:'Selected rows'}</div></div>
+      ${one?`<div class="field"><label for="rowname">Row name</label><input type="text" id="rowname" value="${esc(one.name)}"></div>`:''}
+      <div class="field"><label>Row colour${one?'':' (all selected)'}</label>${swatches(cur,true,'rowcol')}</div>
+      <p class="hint">Drag the row names to move ${one?'this row':'these rows'}, or use ↑ Up and ↓ Down. Copy and Paste put copies right after the selection.</p>
+      <div class="sec">New project from ${one?'this row':'these rows'}</div>
+      <div class="field"><label for="exname">Project name</label><input type="text" id="exname" value="${esc(S.file.replace(/\.xpj$/i,'')+' - '+rs[0].name+(rs.length>1?' to '+rs[rs.length-1].name:''))}"></div>
+      <button class="btn primary" id="exsave" ${RAW?'':'disabled'}>Save ${rs.length} row${rs.length>1?'s':''} as new project</button>
+      <p class="hint">${RAW?'Makes a separate project with just these rows, ready for recording them as tracks. All tracks, sounds and mixer settings come along, and your edits to these rows are included.':'Open your own .xpj project to save rows as a new project.'}</p>
+      <div class="sec">Shortcuts</div>${keysHelp()}`;
+    const ex=$('exsave'); if(ex) ex.onclick=()=>doSave({subset:orderedSel(),name:$('exname').value,btn:ex});
+    const exn=$('exname'); if(exn) exn.addEventListener('keydown',e=>e.stopPropagation());
+    const inp=$('rowname'); if(inp){ const commit=()=>{ const v=inp.value.trim(); if(v&&v!==one.name) change(()=>{one.name=v;},'Renamed row'); };
+      inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();commit();} if(e.key==='Escape'){inp.value=one.name;inp.blur();} e.stopPropagation(); }); inp.addEventListener('change',commit); }
+    return;
+  }
+  box.innerHTML=`<div><h2>Inspector</h2><div class="sub">Select a row or a clip to edit it.</div></div><p class="hint">Each row is a scene in the clip matrix and each column is a track, left to right as on the MPC. Rows show their original position when moved, so you can see what changed before saving.</p><div class="sec">Shortcuts</div>${keysHelp()}`+trackSummary();
+}
+function keysHelp(){ return `<div class="keys"><kbd>Click / Shift / ⌘-click</kbd><span>select rows</span><kbd>Drag row name</kbd><span>move rows</span><kbd>Alt ↑ ↓</kbd><span>move rows</span><kbd>Click / drag track name</kbd><span>select, move tracks</span><kbd>Alt ← →</kbd><span>move tracks</span><kbd>⌘C ⌘V</kbd><span>copy, paste after selection</span><kbd>Delete</kbd><span>delete rows</span><kbd>⌘Z ⇧⌘Z</kbd><span>undo, redo</span><kbd>Double-click name</kbd><span>rename row</span></div>`; }
+function clipPanel(box){
+  const r=selClip.row, t=S.tracks.find(x=>x.name===selClip.t), c=r.clips[selClip.t], ty=TYPES[t.type]||['?','--other'];
+  const ns=c.notes, pitches=ns.map(n=>n[1]), vels=ns.map(n=>n[2]);
+  const ccs=Object.entries(c.cc).map(([k,v])=>`CC${k}×${v}`).join(', ');
+  let h=`<div><h2>${esc(c.n)}</h2><div class="sub">Row ${S.rows.indexOf(r)+1} · ${esc(r.name)}</div></div>
+  <div class="field"><label for="clipname">Clip name</label><input type="text" id="clipname" value="${esc(c.n)}"></div>
+  <div class="field"><label>Clip colour</label>${swatches(c.colour,true,'clipcol')}</div>
+  <dl class="kv"><dt>Track</dt><dd>${esc(t.name)}</dd><dt>Type</dt><dd><span style="color:var(${ty[1]})">■</span> ${ty[0]}</dd>
+  <dt>Output</dt><dd>${esc(outLabel(t.out))}</dd>
+  ${t.plugin?`<dt>Plugin</dt><dd>${esc(t.plugin.name)} – ${esc(t.plugin.preset)}</dd>`:''}
+  ${t.pads!=null?`<dt>Kit</dt><dd>${t.pads} pads with samples</dd>`:''}
+  <dt>Length</dt><dd>${bars(c.len)}${c.loop?' · loops':' · plays once'}</dd>
+  ${c.audio?`<dt>Sample</dt><dd>${esc(c.audio)}</dd>`:''}
+  <dt>Notes</dt><dd>${ns.length}${ns.length?` · ${noteName(Math.min(...pitches))}–${noteName(Math.max(...pitches))} · vel ${Math.min(...vels)}–${Math.max(...vels)}`:''}</dd>
+  <dt>Prog chg</dt><dd>${c.pc.length?c.pc.map(p=>`${p[1]} @ ${posStr(p[0])}`).join(', '):'none'}</dd>
+  ${ccs?`<dt>CC</dt><dd>${ccs}</dd>`:''}${c.at?`<dt>Pressure</dt><dd>${c.at} aftertouch events</dd>`:''}</dl>`;
+  if(ns.length){h+=`<div class="sec">Notes</div><canvas class="roll" id="roll" aria-label="Piano roll of the clip"></canvas>
+   <div class="tablebox"><table class="notes"><thead><tr><th>Pos</th><th>Note</th><th>Vel</th><th>Len</th></tr></thead><tbody>${ns.slice().sort((a,b)=>a[0]-b[0]).slice(0,256).map(n=>`<tr><td>${posStr(n[0])}</td><td>${noteName(n[1])} <span style="color:var(--muted)">${n[1]}</span></td><td>${n[2]}</td><td>${n[3]}</td></tr>`).join('')}</tbody></table></div>${ns.length>256?`<p class="hint">Showing the first 256 of ${ns.length} notes.</p>`:''}`;}
+  box.innerHTML=h;
+  const inp=$('clipname'); const commit=()=>{ const v=inp.value.trim(); if(v&&v!==c.n) change(()=>{c.n=v;},'Renamed clip'); };
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();commit();} if(e.key==='Escape'){inp.value=c.n;inp.blur();} e.stopPropagation(); }); inp.addEventListener('change',commit);
+  if(ns.length) drawRoll(c, ty[1]);
+}
+function trackSummary(){
+  return `<div class="sec">Tracks</div><dl class="kv">${visibleTracks().map((t,k)=>`<dt>${k+1}</dt><dd>${esc(t.name)} <span style="color:var(--muted)">${(TYPES[t.type]||['?'])[0]}${t.out?' · '+esc(outLabel(t.out)):''}</span></dd>`).join('')}</dl>`;
+}
+const posStr=t=>{const bar=Math.floor(t/(PPQ*4))+1, beat=Math.floor((t%(PPQ*4))/PPQ)+1, tick=t%PPQ;return `${bar}.${beat}.${String(tick).padStart(3,'0')}`;};
+function drawRoll(c,tok){
+  const cv=$('roll'), dpr=window.devicePixelRatio||1, w=cv.clientWidth, h=cv.clientHeight; if(!w) return; cv.width=w*dpr; cv.height=h*dpr;
+  const g=cv.getContext('2d'); g.scale(dpr,dpr);
+  const cs=getComputedStyle(document.documentElement), col=cs.getPropertyValue(tok).trim(), line=cs.getPropertyValue('--line').trim();
+  const ns=c.notes, lo=Math.min(...ns.map(n=>n[1]))-1, hi=Math.max(...ns.map(n=>n[1]))+1, L=Math.max(c.len,1);
+  const nb=Math.max(1,Math.round(L/(PPQ*4)));
+  g.strokeStyle=line; g.lineWidth=1;
+  for(let b=0;b<=nb*4;b++){const x=Math.round(b/(nb*4)*w)+.5; g.globalAlpha=b%4?0.35:1; g.beginPath(); g.moveTo(x,0); g.lineTo(x,h); g.stroke();}
+  const rh=Math.max(2,Math.min(10,h/(hi-lo+1)));
+  for(const n of ns){const x=n[0]/L*w, y=h-(n[1]-lo+0.5)*(h/(hi-lo+1))-rh/2, ww=Math.max(2,n[3]/L*w);
+    g.fillStyle=col; g.globalAlpha=0.35+0.65*n[2]/127; g.fillRect(x,y,ww,rh);}
+  g.globalAlpha=1;
+}
+let toastTimer=null;
+function toast(msg,undoable){ const t=$('toast'); t.innerHTML=`<span>${esc(msg)}</span>${undoable?'<button id="toastUndo">Undo</button>':''}`; t.hidden=false;
+  const u=$('toastUndo'); if(u) u.onclick=()=>{doUndo(); t.hidden=true;};
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.hidden=true,4000); }
+
+/* ---------- selection, rename, drag ---------- */
+const rowAt=i=>S.rows[+i];
+$('grid').addEventListener('click',e=>{
+  const cell=e.target.closest('.cell');
+  if(cell){ selClip={row:rowAt(cell.dataset.i),t:cell.dataset.t}; selTracks.clear(); paintSelection(); inspector(); return; }
+  const ch=e.target.closest('th.colhead[data-ti]');
+  if(ch){ const t=S.tracks[+ch.dataset.ti]; if(isMix(t)) return; selClip=null; selRows.clear();
+    if(e.shiftKey&&tanchor&&S.tracks.includes(tanchor)){ const vis=visibleTracks().filter(x=>!isMix(x)); const a=vis.indexOf(tanchor), b=vis.indexOf(t); selTracks=new Set(vis.slice(Math.min(a,b),Math.max(a,b)+1)); }
+    else if(e.metaKey||e.ctrlKey){ selTracks.has(t)?selTracks.delete(t):selTracks.add(t); tanchor=t; }
+    else { selTracks=new Set([t]); tanchor=t; }
+    paintSelection(); inspector(); return; }
+  const th=e.target.closest('th.rowhead[data-i]'); if(!th||e.target.closest('input')) return;
+  const r=rowAt(th.dataset.i); selClip=null; selTracks.clear();
+  if(e.shiftKey&&anchor&&S.rows.includes(anchor)){ const vis=visibleRows(); const a=vis.indexOf(anchor), b=vis.indexOf(r); selRows=new Set(vis.slice(Math.min(a,b),Math.max(a,b)+1)); }
+  else if(e.metaKey||e.ctrlKey){ selRows.has(r)?selRows.delete(r):selRows.add(r); anchor=r; }
+  else { selRows=new Set([r]); anchor=r; }
+  paintSelection(); inspector();
+});
+function paintSelection(){ // update highlights without redrawing, so double-click keeps working
+  document.querySelectorAll('#grid tbody tr[data-i]').forEach(tr=>tr.classList.toggle('selrow',selRows.has(rowAt(tr.dataset.i))));
+  document.querySelectorAll('#grid th.colhead[data-ti]').forEach(th=>th.classList.toggle('selcol',selTracks.has(S.tracks[+th.dataset.ti])));
+  const selNames=new Set([...selTracks].map(t=>t.name));
+  document.querySelectorAll('#grid tbody td.c').forEach(td=>{ const b=td.querySelector('.cell'); if(b) td.classList.toggle('selcol',selNames.has(b.dataset.t)); });
+  if(selTracks.size){ const idx=[...document.querySelectorAll('#grid thead th')].map(th=>th.dataset.ti!=null&&selTracks.has(S.tracks[+th.dataset.ti]));
+    document.querySelectorAll('#grid tbody tr').forEach(tr=>[...tr.children].forEach((td,i)=>{ if(i&&td.tagName==='TD') td.classList.toggle('selcol',!!idx[i]); })); }
+  else document.querySelectorAll('#grid tbody td.selcol').forEach(td=>td.classList.remove('selcol'));
+  document.querySelectorAll('#grid .cell').forEach(c=>c.classList.toggle('sel',!!selClip&&selClip.row===rowAt(c.dataset.i)&&selClip.t===c.dataset.t));
+  updateBar();
+}
+$('grid').addEventListener('dblclick',e=>{
+  const th0=e.target.closest('th.rowhead[data-i]'); if(!th0) return;
+  const idx=th0.dataset.i, th=$('grid').querySelector('th.rowhead[data-i="'+idx+'"]'); if(!th) return;
+  const r=rowAt(idx), span=th.querySelector('.rn'); if(!span) return;
+  const inp=document.createElement('input'); inp.className='rename'; inp.value=r.name; inp.setAttribute('aria-label','Row name');
+  span.replaceWith(inp); inp.focus(); inp.select(); th.draggable=false;
+  let done=false; const finish=ok=>{ if(done) return; done=true; const v=inp.value.trim(); if(ok&&v&&v!==r.name) change(()=>{r.name=v;},'Renamed row'); else render(); };
+  inp.addEventListener('keydown',ev=>{ ev.stopPropagation(); if(ev.key==='Enter') finish(true); if(ev.key==='Escape') finish(false); });
+  inp.addEventListener('blur',()=>finish(true));
+});
+$('insp').addEventListener('click',e=>{
+  const rc=e.target.closest('[data-rowcol]'), cc=e.target.closest('[data-clipcol]');
+  if(rc){ const v=+rc.dataset.rowcol; const rs=orderedSel(); change(()=>rs.forEach(r=>r.colour=v),'Changed row colour'); }
+  if(cc&&selClip){ const v=+cc.dataset.clipcol; const c=selClip.row.clips[selClip.t]; change(()=>{c.colour=v;},'Changed clip colour'); }
+});
+let dragOver=null;
+$('grid').addEventListener('dragstart',e=>{
+  const ch=e.target.closest('th.colhead[data-ti]');
+  if(ch){ const t=S.tracks[+ch.dataset.ti]; if(isMix(t)){ e.preventDefault(); return; }
+    if(!selTracks.has(t)){ selTracks=new Set([t]); tanchor=t; selRows.clear(); selClip=null; paintSelection(); inspector(); }
+    dragKind='tracks'; e.dataTransfer.effectAllowed='move'; try{ e.dataTransfer.setData('text/plain','tracks'); }catch(_){}
+    requestAnimationFrame(()=>document.querySelectorAll('#grid th.colhead.selcol').forEach(x=>x.classList.add('dragging'))); return; }
+  const th=e.target.closest('th.rowhead[data-i]'); if(!th){ e.preventDefault(); return; }
+  dragKind='rows';
+  const r=rowAt(th.dataset.i); if(!selRows.has(r)){ selRows=new Set([r]); anchor=r; selClip=null; }
+  e.dataTransfer.effectAllowed='move'; try{ e.dataTransfer.setData('text/plain','rows'); }catch(_){}
+  requestAnimationFrame(()=>document.querySelectorAll('#grid tbody tr').forEach(tr=>{ if(selRows.has(rowAt(tr.dataset.i))) tr.classList.add('dragging'); }));
+});
+$('grid').addEventListener('dragover',e=>{
+  if(dragKind==='tracks'){ const th=e.target.closest('th.colhead[data-ti]'); if(!th||isMix(S.tracks[+th.dataset.ti])) return; e.preventDefault();
+    const rect=th.getBoundingClientRect(); const after=e.clientX>rect.left+rect.width/2;
+    if(dragOver&&dragOver.el!==th) dragOver.el.classList.remove('drop-left','drop-right');
+    th.classList.toggle('drop-right',after); th.classList.toggle('drop-left',!after); dragOver={el:th,after,kind:'tracks'}; return; }
+  const tr=e.target.closest('tbody tr'); if(!tr||!selRows.size||dragKind!=='rows') return; e.preventDefault();
+  const rect=tr.getBoundingClientRect(); const after=e.clientY>rect.top+rect.height/2;
+  if(dragOver&&dragOver.el!==tr) dragOver.el.classList.remove('drop-before','drop-after');
+  tr.classList.toggle('drop-after',after); tr.classList.toggle('drop-before',!after); dragOver={el:tr,after,kind:'rows'};
+});
+$('grid').addEventListener('drop',e=>{
+  e.preventDefault(); if(!dragOver) return;
+  if(dragOver.kind==='tracks'){ const target=+dragOver.el.dataset.ti+(dragOver.after?1:0); dragOver=null; const n=selTracks.size; change(()=>moveTracks(target),`Moved ${n} track${n>1?'s':''}`); return; }
+  const target=+dragOver.el.dataset.i+(dragOver.after?1:0); dragOver=null;
+  const n=selRows.size; change(()=>moveBlock(target),`Moved ${n} row${n>1?'s':''}`);
+});
+$('grid').addEventListener('dragend',()=>{ if(dragOver){dragOver.el.classList.remove('drop-before','drop-after','drop-left','drop-right'); dragOver=null;} dragKind=null; document.querySelectorAll('.dragging').forEach(t=>t.classList.remove('dragging')); });
+
+/* ---------- toolbar, keys, files ---------- */
+$('up').onclick=()=>nudge(-1); $('down').onclick=()=>nudge(1); $('tleft').onclick=()=>nudgeTracks(-1); $('tright').onclick=()=>nudgeTracks(1);
+$('copy').onclick=doCopy; $('paste').onclick=doPaste; $('del').onclick=doDelete; $('undo').onclick=doUndo; $('redo').onclick=doRedo; $('save').onclick=doSave;
+document.addEventListener('keydown',e=>{
+  if(e.target.closest('input,textarea')) return;
+  const mod=e.metaKey||e.ctrlKey, k=e.key.toLowerCase();
+  if(mod&&k==='c'){ if(selRows.size){e.preventDefault();doCopy();} }
+  else if(mod&&k==='v'){ if(clipboard.length){e.preventDefault();doPaste();} }
+  else if(mod&&k==='z'){ e.preventDefault(); e.shiftKey?doRedo():doUndo(); }
+  else if(mod&&k==='y'){ e.preventDefault(); doRedo(); }
+  else if(mod&&k==='a'){ e.preventDefault(); selRows=new Set(visibleRows()); selClip=null; render(); inspector(); }
+  else if((k==='delete'||k==='backspace')&&selRows.size){ e.preventDefault(); doDelete(); }
+  else if(e.altKey&&(k==='arrowup'||k==='arrowdown')&&selRows.size){ e.preventDefault(); nudge(k==='arrowup'?-1:1); }
+  else if(e.altKey&&(k==='arrowleft'||k==='arrowright')&&selTracks.size){ e.preventDefault(); nudgeTracks(k==='arrowleft'?-1:1); }
+  else if(k==='escape'){ selRows.clear(); selTracks.clear(); selClip=null; render(); inspector(); }
+});
+['q','hideEmptyRows','hideMix'].forEach(id=>$(id).addEventListener('input',()=>{render(); inspector();}));
+$('open').addEventListener('click',()=>$('file').click());
+$('file').addEventListener('change',e=>{const f=e.target.files[0]; if(f) load(f); e.target.value='';});
+let dragDepth=0;
+const isFiles=e=>e.dataTransfer&&[...e.dataTransfer.types].includes('Files');
+window.addEventListener('dragenter',e=>{if(isFiles(e)){dragDepth++; $('drop').hidden=false;}});
+window.addEventListener('dragleave',e=>{if(isFiles(e)&&--dragDepth<=0){dragDepth=0;$('drop').hidden=true;}});
+window.addEventListener('dragover',e=>{if(isFiles(e)) e.preventDefault();});
+window.addEventListener('drop',e=>{if(!isFiles(e)) return; e.preventDefault(); dragDepth=0; $('drop').hidden=true; const f=e.dataTransfer.files[0]; if(f) load(f);});
+function setProject(s,raw){
+  S=prepare(s); S._base=S.rows.slice(); S._tbase=S.tracks.slice(); S._n0=S.rows.length; RAW=raw;
+  selTracks=new Set(); tanchor=null; selRows=new Set(); anchor=null; selClip=null; clipboard=[]; undoStack=[]; redoStack=[]; savedNote='';
+}
+async function load(f){
+  $('busy').hidden=false; $('busy').textContent='Reading '+f.name+'…';
+  try{
+    const {s,raw}=await readXpj(f); setProject(s,raw); render(); inspector(); $('gridwrap').scrollTo(0,0);
+    const d=loadDraft();
+    if(d){ const t=$('toast'); t.innerHTML=`<span>You have unsaved edits to this project from ${new Date(d.at).toLocaleString()}.</span><button id="restoreDraft">Restore them</button>`; t.hidden=false; clearTimeout(toastTimer);
+      $('restoreDraft').onclick=()=>{ t.hidden=true; applyDraft(d); }; toastTimer=setTimeout(()=>t.hidden=true,15000); }
+  }catch(err){ $('banner').innerHTML=`<span class="err">${esc(err.message||String(err))}</span>`; }
+  finally{ $('busy').hidden=true; }
+}
+window.addEventListener('resize',()=>{ if(selClip) inspector(); });
+
+/* ---------- start with the built-in example ---------- */
+let sample; try{ sample=JSON.parse($('sample').textContent); sample.sample=true; }catch(e){ sample={file:'(none)',tracks:[],rows:[]}; }
+setProject(sample,null); render(); inspector();
+})();
+</script>
+
+</body>
+</html>
