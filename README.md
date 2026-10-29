@@ -11,6 +11,7 @@ A browser tool for planning live sets in **MPC 3** projects (`.xpj`). Open a pro
 - Reorder rows by dragging, with ↑/↓ or Alt+arrows. Single or multiple selection with Shift or Cmd/Ctrl.
 - Copy, paste and delete rows, with undo and redo.
 - Rename rows and clips and change their colours.
+- Shows the musical key of each row and clip (a best guess from the notes), an overview of the keys in the set, and which rows mix well together by key (Camelot wheel).
 - Reorder tracks.
 - **New project from these rows**: save just the selected rows as a separate project, to pull parts of a set out for recording.
 

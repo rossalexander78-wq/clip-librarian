@@ -98,6 +98,25 @@ tr.dragging{opacity:.5}
 .cell .cn{display:block;font-size:11.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:10px}
 .cell .cm{display:flex;gap:6px;margin-top:3px;font-family:var(--mono);font-size:10px;color:var(--muted);white-space:nowrap}
 .cell .pc{color:var(--accent);font-weight:500}
+.cell .ck{color:var(--fg);opacity:.75}
+.rowhead .key{margin-left:auto;flex:none;font-family:var(--mono);font-size:10.5px;padding:1px 5px;border-radius:4px;border:1px solid var(--line);color:var(--fg);background:var(--bg);white-space:nowrap}
+.rowhead .key.unsure{color:var(--muted);border-style:dashed}
+.rowhead .key.same{background:var(--accent);border-color:var(--accent);color:#fff}
+.rowhead .key.near{border-color:var(--accent);color:var(--accent)}
+.keylist{display:flex;flex-wrap:wrap;gap:6px}
+.mixgrp{margin-top:10px}
+.mixh{font-size:11.5px;font-weight:600;margin-bottom:4px}.mixh span{font-weight:400;color:var(--muted);font-family:var(--mono);font-size:10.5px;margin-left:4px}
+.mixrow{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:4px 6px;border:0;border-radius:5px;background:none;color:var(--fg);font:13px var(--body);cursor:pointer}
+.mixrow:hover{background:var(--rowsel)}
+.mixrow .mk{font-family:var(--mono);font-size:10.5px;min-width:38px;padding:1px 4px;border:1px solid var(--line);border-radius:4px;text-align:center}
+.mixrow .mk.unsure{border-style:dashed;color:var(--muted)}
+.mixrow .mn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mixrow .mi{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.keylist button{font:500 11.5px var(--mono);padding:4px 7px;border-radius:5px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
+.keylist button:hover{border-color:var(--accent)}
+.keylist button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.keylist button small{color:var(--muted);margin-left:4px}
+.keylist button.on small{color:#fff;opacity:.8}
 .empty{display:block;width:118px;height:44px;background:var(--cell-empty);opacity:.55}
 aside.insp{min-width:0;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:14px}
 .insp h2{font-family:var(--display);font-size:22px;font-weight:600;margin:0;line-height:1.1;text-wrap:balance;overflow-wrap:anywhere}
@@ -153,7 +172,7 @@ canvas.roll{width:100%;height:150px;background:var(--panel-2);border:1px solid v
   <div class="controls">
     <div class="banner" id="banner"></div>
     <div class="spacer"></div>
-    <input type="search" id="q" placeholder="Filter rows by name" aria-label="Filter rows by name">
+    <input type="search" id="q" placeholder="Filter rows by name or key (Am, 8A)" aria-label="Filter rows by name or key">
     <label><input type="checkbox" id="hideEmptyRows" checked> Hide empty rows</label>
     <label><input type="checkbox" id="hideMix" checked> Hide mixer tracks</label>
   </div>
@@ -292,6 +311,40 @@ function prepare(s){ // remember where each row and track came from and what it 
   return s;
 }
 
+/* ---------- musical key ---------- */
+// Best guess from the notes: pitch classes weighted by length and velocity, compared with the Krumhansl-Kessler major and minor profiles.
+const KMAJ=[6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88], KMIN=[6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
+const MAJN=['C','Db','D','Eb','E','F','F#','G','Ab','A','Bb','B'], MINN=['C','C#','D','Eb','E','F','F#','G','G#','A','Bb','B'];
+const PITCHED=new Set([1,3,4]); // keygroup, plugin, MIDI
+function kcorr(h,prof,t){ let ma=0,mb=0; for(let i=0;i<12;i++){ma+=h[i];mb+=prof[i];} ma/=12; mb/=12;
+  let n=0,da=0,db=0; for(let i=0;i<12;i++){ const a=h[i]-ma, b=prof[(i-t+12)%12]-mb; n+=a*b; da+=a*a; db+=b*b; } return da&&db?n/Math.sqrt(da*db):0; }
+function keyInfo(tonic,minor){ const cam=((tonic+(minor?3:0))*7+7)%12+1;
+  return {tonic,minor,name:(minor?MINN:MAJN)[tonic]+(minor?' minor':' major'),short:(minor?MINN:MAJN)[tonic]+(minor?'m':''),cam:cam+(minor?'A':'B'),num:cam}; }
+function detectKey(noteLists){
+  const h=new Array(12).fill(0); let n=0;
+  for(const ns of noteLists) for(const x of ns){ h[x[1]%12]+=Math.max(x[3],60)*(x[2]||100)/127; n++; }
+  const pcs=h.filter(v=>v>0).length; if(n<4||pcs<3) return null;
+  const r=[]; for(let t=0;t<12;t++){ r.push([kcorr(h,KMAJ,t),t,false]); r.push([kcorr(h,KMIN,t),t,true]); }
+  r.sort((a,b)=>b[0]-a[0]);
+  const k=keyInfo(r[0][1],r[0][2]); const c=r[0][0], gap=c-r[1][0];
+  k.conf=c>.8&&gap>.05?'clear':(c>.65?'likely':'unclear'); k.alt=keyInfo(r[1][1],r[1][2]); return k;
+}
+const keyCache=new WeakMap();
+function clipKey(c,t){ if(!t||!PITCHED.has(t.type)||!c.notes||!c.notes.length) return null;
+  if(!keyCache.has(c)) keyCache.set(c,detectKey([c.notes])); return keyCache.get(c); }
+function rowKey(r){ const sig=Object.keys(r.clips).join('|');
+  const hit=keyCache.get(r); if(hit&&hit.sig===sig) return hit.k;
+  const tt=new Map(S.tracks.map(t=>[t.name,t]));
+  const lists=Object.entries(r.clips).filter(([tn,c])=>{const t=tt.get(tn); return t&&PITCHED.has(t.type)&&c.notes&&c.notes.length;}).map(([,c])=>c.notes);
+  const k=detectKey(lists); keyCache.set(r,{sig,k}); return k; }
+function keyRelation(a,b){ if(!a||!b) return ''; if(a.cam===b.cam) return 'same';
+  return keyDist(a,b)===1?'near':''; }
+function keyLabel(k){ return k?`${k.name} · ${k.cam}${k.conf==='clear'?'':k.conf==='likely'?' · likely':` · unsure, maybe ${k.alt.name}`}`:''; }
+// steps apart on the Camelot wheel: 0 same key, 1 relative major/minor or one fifth away, 2 a bit of a stretch
+function keyDist(a,b){ const d=Math.abs(a.num-b.num), w=Math.min(d,12-d); return w+(a.minor!==b.minor?1:0); }
+let keyFilter=null; // Camelot code to show, or null
+let mixRow=null;    // when set, only rows that mix well with this row are shown
+
 /* ---------- edit state ---------- */
 function snapshot(){ return {tracks:S.tracks.slice(), rows:snapRows()}; }
 function snapRows(){ return S.rows.map(r=>({r,name:r.name,colour:r.colour,clips:Object.fromEntries(Object.entries(r.clips).map(([k,c])=>[k,[c.n,c.colour]]))})); }
@@ -402,7 +455,15 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const outLabel=o=>o?o.dev.replace('MPC LIVE III ','').replace('MPC X ','')+' ch'+o.ch:'internal';
 function visibleTracks(){return S.tracks.filter(t=>!($('hideMix').checked&&[7,8,9].includes(t.type)));}
 function visibleRows(){ const q=$('q').value.trim().toLowerCase();
-  return S.rows.filter(r=>!($('hideEmptyRows').checked&&!Object.keys(r.clips).length)&&!(q&&!r.name.toLowerCase().includes(q))); }
+  return S.rows.filter(r=>{ if($('hideEmptyRows').checked&&!Object.keys(r.clips).length) return false;
+    const k=(q||keyFilter||mixRow)?rowKey(r):null;
+    if(keyFilter&&!(k&&k.cam===keyFilter)) return false;
+    if(mixRow&&r!==mixRow){ const mk=rowKey(mixRow); if(!k||!mk||keyDist(mk,k)>1) return false; }
+    if(!q) return true; if(r.name.toLowerCase().includes(q)) return true;
+    return !!k&&[k.name,k.short,k.cam].some(s=>s.toLowerCase()===q); }); }
+function keyChip(r){ const k=rowKey(r); if(!k) return '';
+  const ref=selRows.size===1?rowKey([...selRows][0]):null; const rel=ref&&!selRows.has(r)?keyRelation(ref,k):'';
+  return `<span class="key${k.conf==='unclear'?' unsure':''}${rel?' '+rel:''}" title="${esc(keyLabel(k))}">${esc(k.short)}${k.conf==='unclear'?'?':''}</span>`; }
 function render(){
   const tv=visibleTracks(), vr=visibleRows();
   const nClips=S.rows.reduce((a,r)=>a+Object.keys(r.clips).length,0);
@@ -421,23 +482,24 @@ function render(){
     const isCopyRow=/ - [2-9]$/.test(r.name);
     const moved=r._copy?`copy of ${r._src+1}`:(r._src!==ri?`was ${r._src+1}`:'');
     const edited=r.name!==r._name||r.colour!==r._colour;
-    h+=`<tr data-i="${ri}" class="${isCopyRow?'copy ':''}${selRows.has(r)?'selrow':''}"><th class="rowhead" scope="row" draggable="true" tabindex="0" data-i="${ri}"><div class="rh"><span class="sw" style="background:${r.colour?hex(r.colour):'transparent'}"></span><span class="ri">${ri+1}</span><span class="rtext"><span class="rn" title="${esc(r.name)} (double-click to rename)">${esc(r.name)}</span>${moved||edited?`<span class="was${r._copy?' chg':''}">${esc(moved)}${edited&&!r._copy?(moved?' · ':'')+'edited':''}</span>`:''}</span></div></th>`;
+    h+=`<tr data-i="${ri}" class="${isCopyRow?'copy ':''}${selRows.has(r)?'selrow':''}"><th class="rowhead" scope="row" draggable="true" tabindex="0" data-i="${ri}"><div class="rh"><span class="sw" style="background:${r.colour?hex(r.colour):'transparent'}"></span><span class="ri">${ri+1}</span><span class="rtext"><span class="rn" title="${esc(r.name)} (double-click to rename)">${esc(r.name)}</span>${moved||edited?`<span class="was${r._copy?' chg':''}">${esc(moved)}${edited&&!r._copy?(moved?' · ':'')+'edited':''}</span>`:''}</span>${keyChip(r)}</div></th>`;
     for(const t of tv){
       const c=r.clips[t.name];
       const sc=selTracks.has(t)?' selcol':'';
       if(!c){h+=`<td class="c${sc}"><span class="empty"></span></td>`;continue;}
       const ty=TYPES[t.type]||['?','--other'];
-      const meta=c.audio?'audio':(c.notes.length+' n');
+      const meta=c.audio?'audio':(c.notes.length+' n'); const ck=clipKey(c,t);
       const pcs=c.pc.length?`<span class="pc">PC ${[...new Set(c.pc.map(p=>p[1]))].join(',')}</span>`:'';
       const isSel=selClip&&selClip.row===r&&selClip.t===t.name;
-      h+=`<td class="c${sc}"><button class="cell${isSel?' sel':''}" style="--tc:var(${ty[1]})" data-i="${ri}" data-t="${esc(t.name)}" title="${esc(c.n)}">${c.colour?`<span class="cdot" style="background:${hex(c.colour)}"></span>`:''}<span class="cn">${esc(c.n)}</span><span class="cm"><span>${bars(c.len)}</span><span>${meta}</span>${pcs}</span></button></td>`;
+      h+=`<td class="c${sc}"><button class="cell${isSel?' sel':''}" style="--tc:var(${ty[1]})" data-i="${ri}" data-t="${esc(t.name)}" title="${esc(c.n)}">${c.colour?`<span class="cdot" style="background:${hex(c.colour)}"></span>`:''}<span class="cn">${esc(c.n)}</span><span class="cm"><span>${bars(c.len)}</span><span>${meta}</span>${pcs}${ck&&ck.conf!=='unclear'?`<span class="ck">${esc(ck.short)}</span>`:''}</span></button></td>`;
     }
     h+='</tr>';
   }
   h+='</tbody>';
   $('grid').innerHTML=h;
   const q=$('q').value.trim();
-  $('banner').innerHTML=`<span class="tag">${esc(S.file)}</span>${S.sample?`<span>${esc(S.note||'Built-in example set. Try editing it here, then open your own MPC 3 project to save a copy.')}</span>`:`<span>MPC ${esc(S.version)} · your original file is never changed</span>`}${q?`<span>${vr.length} rows match</span>`:''}`;
+  $('banner').innerHTML=`<span class="tag">${esc(S.file)}</span>${S.sample?`<span>${esc(S.note||'Built-in example set. Try editing it here, then open your own MPC 3 project to save a copy.')}</span>`:`<span>MPC ${esc(S.version)} · your original file is never changed</span>`}${q||keyFilter||mixRow?`<span>${vr.length} rows ${mixRow?`that mix with ${esc(mixRow.name)} · <a href="#" id="clearkey">show all</a>`:keyFilter?`in ${esc(keyFilter)} · <a href="#" id="clearkey">show all</a>`:'match'}</span>`:''}`;
+  { const ck=$('clearkey'); if(ck) ck.onclick=e=>{e.preventDefault(); keyFilter=null; mixRow=null; render(); inspector();}; }
   $('legend').innerHTML=[0,4,3,1,6].map(k=>`<span><i style="background:var(${TYPES[k][1]})"></i>${TYPES[k][0]}</span>`).join('')+'<span style="color:var(--accent)">PC = program change</span>';
   updateBar();
 }
@@ -473,6 +535,7 @@ function inspector(){
     const one=rs.length===1?rs[0]:null;
     const cur=one?one.colour:(rs.every(r=>r.colour===rs[0].colour)?rs[0].colour:null);
     box.innerHTML=`<div><h2>${one?esc(one.name):rs.length+' rows'}</h2><div class="sub">${one?`Row ${S.rows.indexOf(one)+1} · ${Object.keys(one.clips).length} clips${one._src!==S.rows.indexOf(one)||one._copy?` · originally row ${one._src+1}`:''}`:'Selected rows'}</div></div>
+      ${one?rowKeyPanel(one):''}
       ${one?`<div class="field"><label for="rowname">Row name</label><input type="text" id="rowname" value="${esc(one.name)}"></div>`:''}
       <div class="field"><label>Row colour${one?'':' (all selected)'}</label>${swatches(cur,true,'rowcol')}</div>
       <p class="hint">Drag the row names to move ${one?'this row':'these rows'}, or use ↑ Up and ↓ Down. Copy and Paste put copies right after the selection.</p>
@@ -481,14 +544,41 @@ function inspector(){
       <button class="btn primary" id="exsave" ${RAW?'':'disabled'}>Save ${rs.length} row${rs.length>1?'s':''} as new project</button>
       <p class="hint">${RAW?'Makes a separate project with just these rows, ready for recording them as tracks. All tracks, sounds and mixer settings come along, and your edits to these rows are included.':'Open your own .xpj project to save rows as a new project.'}</p>
       <div class="sec">Shortcuts</div>${keysHelp()}`;
+    if(one) wireMix(box,one);
     const ex=$('exsave'); if(ex) ex.onclick=()=>doSave({subset:orderedSel(),name:$('exname').value,btn:ex});
     const exn=$('exname'); if(exn) exn.addEventListener('keydown',e=>e.stopPropagation());
     const inp=$('rowname'); if(inp){ const commit=()=>{ const v=inp.value.trim(); if(v&&v!==one.name) change(()=>{one.name=v;},'Renamed row'); };
       inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();commit();} if(e.key==='Escape'){inp.value=one.name;inp.blur();} e.stopPropagation(); }); inp.addEventListener('change',commit); }
     return;
   }
-  box.innerHTML=`<div><h2>Inspector</h2><div class="sub">Select a row or a clip to edit it.</div></div><p class="hint">Each row is a scene in the clip matrix and each column is a track, left to right as on the MPC. Rows show their original position when moved, so you can see what changed before saving.</p><div class="sec">Shortcuts</div>${keysHelp()}`+trackSummary();
+  box.innerHTML=`<div><h2>Inspector</h2><div class="sub">Select a row or a clip to edit it.</div></div><p class="hint">Each row is a scene in the clip matrix and each column is a track, left to right as on the MPC. Rows show their original position when moved, so you can see what changed before saving.</p>${keyOverview()}<div class="sec">Shortcuts</div>${keysHelp()}`+trackSummary();
+  wireKeyList(box);
 }
+function rowKeyPanel(r){ const k=rowKey(r);
+  if(!k) return `<div class="sec">Key</div><p class="hint">No melodic notes in this row (drums and audio can't be read for key).</p>`;
+  const seq=S.rows.filter(x=>x!==r&&x.name!==r.name&&!/ - [2-9]$/.test(x.name)&&!/^\d+$/.test(x.name.trim()));
+  const scored=seq.map(x=>[x,rowKey(x)]).filter(([,xk])=>xk).map(([x,xk])=>[x,xk,keyDist(k,xk)]).filter(e=>e[2]<=2)
+    .sort((a,b)=>a[2]-b[2]||(a[1].conf==='unclear')-(b[1].conf==='unclear')||S.rows.indexOf(a[0])-S.rows.indexOf(b[0]));
+  const group=(d,title,note)=>{ const g=scored.filter(e=>e[2]===d); if(!g.length) return '';
+    return `<div class="mixgrp"><div class="mixh">${title} <span>${note}</span></div>${g.map(([x,xk])=>`<button class="mixrow" data-i="${S.rows.indexOf(x)}"><span class="mk${xk.conf==='unclear'?' unsure':''}">${esc(xk.short)}${xk.conf==='unclear'?'?':''}</span><span class="mn">${esc(x.name)}</span><span class="mi">${S.rows.indexOf(x)+1}</span></button>`).join('')}</div>`; };
+  return `<div class="sec">Key</div><dl class="kv"><dt>Key</dt><dd>${esc(k.name)}</dd><dt>Camelot</dt><dd>${k.cam}</dd><dt>Confidence</dt><dd>${k.conf}${k.conf!=='clear'?` (next best: ${esc(k.alt.name)})`:''}</dd></dl>
+  <div class="sec">Mixes well with</div>
+  <button class="btn" id="mixonly">${mixRow===r?'Show all rows':'Show only rows that mix with this'}</button>
+  ${scored.length?group(0,'Same key',k.cam)+group(1,'Next door','1 step')+group(2,'Works with care','2 steps'):'<p class="hint">No other sequences within 2 steps of this key.</p>'}
+  <p class="hint">Steps round the Camelot wheel. One step is a fifth up or down, or the relative major or minor; these usually blend smoothly. In the grid, same-key rows are filled in and 1-step rows are outlined. Click a name to jump to it.</p>`; }
+function wireMix(box,r){ const b=box.querySelector('#mixonly'); if(b) b.onclick=()=>{ mixRow=mixRow===r?null:r; keyFilter=null; render(); inspector(); };
+  box.querySelectorAll('.mixrow').forEach(el=>el.onclick=()=>{ const x=S.rows[+el.dataset.i]; selRows=new Set([x]); anchor=x; selClip=null;
+    if(!visibleRows().includes(x)){ mixRow=null; keyFilter=null; $('q').value=''; }
+    render(); inspector(); const tr=document.querySelector(`#grid tbody tr[data-i="${el.dataset.i}"]`); if(tr) tr.scrollIntoView({block:'center'}); }); }
+function keyOverview(){
+  const seen=new Map(); let none=0;
+  for(const r of S.rows){ if(!Object.keys(r.clips).length) continue; const k=rowKey(r); if(!k){none++;continue;}
+    const e=seen.get(k.cam)||{k,n:0}; e.n++; seen.set(k.cam,e); }
+  if(!seen.size) return '';
+  const list=[...seen.values()].sort((a,b)=>a.k.num-b.k.num||(a.k.minor?-1:1));
+  return `<div class="sec">Keys in this set</div><div class="keylist">${list.map(e=>`<button data-cam="${e.k.cam}" class="${keyFilter===e.k.cam?'on':''}" title="${esc(e.k.name)} · Camelot ${e.k.cam}">${esc(e.k.short)}<small>${e.k.cam} · ${e.n}</small></button>`).join('')}</div>
+  <p class="hint">Click a key to show only rows in that key, click again to show all. The number is how many rows. Keys are a best guess from the notes in MIDI, plugin and keygroup clips${none?`; ${none} row${none>1?'s have':' has'} only drums or audio`:''}.</p>`; }
+function wireKeyList(box){ box.querySelectorAll('.keylist button').forEach(b=>b.onclick=()=>{ keyFilter=keyFilter===b.dataset.cam?null:b.dataset.cam; render(); inspector(); }); }
 function keysHelp(){ return `<div class="keys"><kbd>Click / Shift / ⌘-click</kbd><span>select rows</span><kbd>Drag row name</kbd><span>move rows</span><kbd>Alt ↑ ↓</kbd><span>move rows</span><kbd>Click / drag track name</kbd><span>select, move tracks</span><kbd>Alt ← →</kbd><span>move tracks</span><kbd>⌘C ⌘V</kbd><span>copy, paste after selection</span><kbd>Delete</kbd><span>delete rows</span><kbd>⌘Z ⇧⌘Z</kbd><span>undo, redo</span><kbd>Double-click name</kbd><span>rename row</span></div>`; }
 function clipPanel(box){
   const r=selClip.row, t=S.tracks.find(x=>x.name===selClip.t), c=r.clips[selClip.t], ty=TYPES[t.type]||['?','--other'];
@@ -504,6 +594,7 @@ function clipPanel(box){
   <dt>Length</dt><dd>${bars(c.len)}${c.loop?' · loops':' · plays once'}</dd>
   ${c.audio?`<dt>Sample</dt><dd>${esc(c.audio)}</dd>`:''}
   <dt>Notes</dt><dd>${ns.length}${ns.length?` · ${noteName(Math.min(...pitches))}–${noteName(Math.max(...pitches))} · vel ${Math.min(...vels)}–${Math.max(...vels)}`:''}</dd>
+  ${clipKey(c,t)?`<dt>Key</dt><dd>${esc(keyLabel(clipKey(c,t)))}</dd>`:''}
   <dt>Prog chg</dt><dd>${c.pc.length?c.pc.map(p=>`${p[1]} @ ${posStr(p[0])}`).join(', '):'none'}</dd>
   ${ccs?`<dt>CC</dt><dd>${ccs}</dd>`:''}${c.at?`<dt>Pressure</dt><dd>${c.at} aftertouch events</dd>`:''}</dl>`;
   if(ns.length){h+=`<div class="sec">Notes</div><canvas class="roll" id="roll" aria-label="Piano roll of the clip"></canvas>
@@ -554,6 +645,9 @@ $('grid').addEventListener('click',e=>{
   paintSelection(); inspector();
 });
 function paintSelection(){ // update highlights without redrawing, so double-click keeps working
+  const ref=selRows.size===1?rowKey([...selRows][0]):null;
+  document.querySelectorAll('#grid tbody tr[data-i]').forEach(tr=>{ const ch=tr.querySelector('.rowhead .key'); if(!ch) return; const r=rowAt(tr.dataset.i);
+    const rel=ref&&!selRows.has(r)?keyRelation(ref,rowKey(r)):''; ch.classList.toggle('same',rel==='same'); ch.classList.toggle('near',rel==='near'); });
   document.querySelectorAll('#grid tbody tr[data-i]').forEach(tr=>tr.classList.toggle('selrow',selRows.has(rowAt(tr.dataset.i))));
   document.querySelectorAll('#grid th.colhead[data-ti]').forEach(th=>th.classList.toggle('selcol',selTracks.has(S.tracks[+th.dataset.ti])));
   const selNames=new Set([...selTracks].map(t=>t.name));
@@ -636,7 +730,7 @@ window.addEventListener('dragleave',e=>{if(isFiles(e)&&--dragDepth<=0){dragDepth
 window.addEventListener('dragover',e=>{if(isFiles(e)) e.preventDefault();});
 window.addEventListener('drop',e=>{if(!isFiles(e)) return; e.preventDefault(); dragDepth=0; $('drop').hidden=true; const f=e.dataTransfer.files[0]; if(f) load(f);});
 function setProject(s,raw){
-  S=prepare(s); S._base=S.rows.slice(); S._tbase=S.tracks.slice(); S._n0=S.rows.length; RAW=raw;
+  keyFilter=null; mixRow=null; S=prepare(s); S._base=S.rows.slice(); S._tbase=S.tracks.slice(); S._n0=S.rows.length; RAW=raw;
   selTracks=new Set(); tanchor=null; selRows=new Set(); anchor=null; selClip=null; clipboard=[]; undoStack=[]; redoStack=[]; savedNote='';
 }
 async function load(f){
