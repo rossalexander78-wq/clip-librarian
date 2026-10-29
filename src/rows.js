@@ -29,8 +29,36 @@ function setFirst(t,from,re,val){
   const m=re.exec(t.slice(from)); if(!m) return t;
   const a=from+m.index; return t.slice(0,a)+val+t.slice(a+m[0].length);
 }
-// row: {src, name?, colour?, clips?: {trackName: {name?, colour?}}}
+const KEY_RE=/^\{\s*"key": ("(?:[^"\\]|\\.)*")/;
+function clipEntries(t){ try{ return findArray(t,'"clips":',''); }catch(e){ return null; } }
+// keep only the clips on the listed tracks
+function keepClips(t,keep){ const a=clipEntries(t); if(!a) return t;
+  const parts=a.items.map(([s,e])=>t.slice(s,e)).filter(x=>{ const m=KEY_RE.exec(x); return m&&keep.includes(JSON.parse(m[1])); });
+  return t.slice(0,a.open+1)+arrayBody(a,parts)+t.slice(a.close); }
+// replace one clip's notes and length: gen = {notes:[[time,note,vel,len]], len, loop?}
+function setClipNotes(t,track,gen){ const a=clipEntries(t); if(!a) return t;
+  for(const [s,e] of a.items){ const x=t.slice(s,e), m=KEY_RE.exec(x); if(!m||JSON.parse(m[1])!==track) continue;
+    let y=x.replace(/"startPulses": \d+/,'"startPulses": 0').replace(/"endPulses": \d+/,'"endPulses": '+gen.len)
+      .replace(/"loopStartPulses": \d+/,'"loopStartPulses": 0').replace(/"loopEndPulses": \d+/,'"loopEndPulses": '+gen.len);
+    if(gen.loop!=null) y=y.replace(/"loop": (true|false)/,'"loop": '+(gen.loop?'true':'false'));
+    const ev=findArray(y,'"events":','');
+    const items=ev.items.map(([s2,e2])=>y.slice(s2,e2));
+    const tpl=items.find(z=>/"type": 3,/.test(z)); if(!tpl) return t;
+    const timeOf=z=>+(/"time": (\d+)/.exec(z)||[0,0])[1];
+    const others=items.filter(z=>!/"type": 3,/.test(z)&&timeOf(z)<gen.len);
+    const notes=gen.notes.map(([tm,nt,vel,ln])=>tpl.replace(/"time": \d+/,'"time": '+Math.max(0,Math.round(tm)))
+      .replace(/"note": \d+/,'"note": '+Math.max(0,Math.min(127,Math.round(nt))))
+      .replace(/"velocity": [-\d.eE+]+/,'"velocity": '+(Math.max(1,Math.min(127,Math.round(vel)))/127))
+      .replace(/"length": \d+/,'"length": '+Math.max(1,Math.round(ln))));
+    const all=others.concat(notes).map(z=>[timeOf(z),z]).sort((p,q)=>p[0]-q[0]).map(z=>z[1]);
+    y=y.slice(0,ev.open+1)+arrayBody(ev,all)+y.slice(ev.close);
+    return t.slice(0,s)+y+t.slice(e);
+  }
+  return t; }
+// row: {src, name?, colour?, keep?: [trackName], clips?: {trackName: {name?, colour?, gen?}}}
 function editRow(t,row){
+  if(row.keep) t=keepClips(t,row.keep);
+  if(row.clips) for(const [track,ed] of Object.entries(row.clips)) if(ed.gen) t=setClipNotes(t,track,ed.gen);
   if(row.clips){
     for(const [track,ed] of Object.entries(row.clips)){
       const k=t.indexOf('"key": '+JSON.stringify(track)); if(k<0) continue;

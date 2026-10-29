@@ -97,6 +97,10 @@ tr.dragging{opacity:.5}
 .rowhead .key.same{background:var(--accent);border-color:var(--accent);color:#fff}
 .rowhead .key.near{border-color:var(--accent);color:var(--accent)}
 .keylist{display:flex;flex-wrap:wrap;gap:6px}
+.vargrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px}
+.vargrid select{font:13px var(--body);padding:6px 7px;border:1px solid var(--line);border-radius:6px;background:var(--panel-2);color:var(--fg);min-width:0;width:100%}
+.varinfo{display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.varbtns{display:flex;flex-wrap:wrap;gap:6px}
 .mixgrp{margin-top:10px}
 .mixh{font-size:11.5px;font-weight:600;margin-bottom:4px}.mixh span{font-weight:400;color:var(--muted);font-family:var(--mono);font-size:10.5px;margin-left:4px}
 .mixrow{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:4px 6px;border:0;border-radius:5px;background:none;color:var(--fg);font:13px var(--body);cursor:pointer}
@@ -261,11 +265,11 @@ function detectKey(noteLists){
 const keyCache=new WeakMap();
 function clipKey(c,t){ if(!t||!PITCHED.has(t.type)||!c.notes||!c.notes.length) return null;
   if(!keyCache.has(c)) keyCache.set(c,detectKey([c.notes])); return keyCache.get(c); }
-function rowKey(r){ const sig=Object.keys(r.clips).join('|');
-  const hit=keyCache.get(r); if(hit&&hit.sig===sig) return hit.k;
+function rowKey(r){ const vals=Object.values(r.clips);
+  const hit=keyCache.get(r); if(hit&&hit.vals.length===vals.length&&hit.vals.every((v,i)=>v===vals[i])) return hit.k; const sig=vals;
   const tt=new Map(S.tracks.map(t=>[t.name,t]));
   const lists=Object.entries(r.clips).filter(([tn,c])=>{const t=tt.get(tn); return t&&PITCHED.has(t.type)&&c.notes&&c.notes.length;}).map(([,c])=>c.notes);
-  const k=detectKey(lists); keyCache.set(r,{sig,k}); return k; }
+  const k=detectKey(lists); keyCache.set(r,{vals:sig,k}); return k; }
 function keyRelation(a,b){ if(!a||!b) return ''; if(a.cam===b.cam) return 'same';
   return keyDist(a,b)===1?'near':''; }
 function keyLabel(k){ return k?`${k.name} · ${k.cam}${k.conf==='clear'?'':k.conf==='likely'?' · likely':` · unsure, maybe ${k.alt.name}`}`:''; }
@@ -274,15 +278,85 @@ function keyDist(a,b){ const d=Math.abs(a.num-b.num), w=Math.min(d,12-d); return
 let keyFilter=null; // Camelot code to show, or null
 let mixRow=null;    // when set, only rows that mix well with this row are shown
 
+/* ---------- clip variations ---------- */
+const SCALES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10]};
+function rng(seed){ let s=seed>>>0||1; return ()=>{ s^=s<<13; s>>>=0; s^=s>>>17; s^=s<<5; s>>>=0; return s/4294967296; }; }
+function scaleOf(k){ return k?{tonic:k.tonic,steps:SCALES[k.minor?'minor':'major']}:null; }
+function toDeg(sc,p){ // nearest note of the scale, as a degree count from C-1
+  let best=null; for(let d=-1;d<=1;d++){ const o=Math.floor((p-sc.tonic)/12)+d;
+    sc.steps.forEach((s,i)=>{ const q=sc.tonic+o*12+s, dist=Math.abs(q-p); if(!best||dist<best[0]) best=[dist,o*7+i]; }); }
+  return best[1]; }
+function fromDeg(sc,d){ const o=Math.floor(d/7), i=((d%7)+7)%7; return sc.tonic+o*12+sc.steps[i]; }
+function groups(ns){ const g=new Map(); for(const n of ns){ if(!g.has(n[0])) g.set(n[0],[]); g.get(n[0]).push(n); } return [...g.entries()].sort((a,b)=>a[0]-b[0]); }
+const VAR_DEFAULT={len:'same',fill:'answer',pitch:'new',rhythm:'keep',vel:'natural',seed:1};
+function makeVariation(c,t,key,o){
+  const R=rng(o.seed*2654435761), drum=t.type===0, sc=drum?null:scaleOf(key);
+  let L=c.len||PPQ*16, ns=c.notes.map(n=>n.slice());
+  // rhythm
+  const rhythm=pat=>{ let q=pat.map(n=>n.slice()), len=L;
+    if(o.rhythm==='double'){ q=q.map(n=>[n[0]/2,n[1],n[2],n[3]/2]); q=q.concat(q.map(n=>[n[0]+L/2,n[1],n[2],n[3]])); }
+    else if(o.rhythm==='half'){ q=q.map(n=>[n[0]*2,n[1],n[2],n[3]*2]); len=L*2; }
+    else if(o.rhythm==='nudge'){ q=q.map(n=>[(n[0]+PPQ/4)%L,n[1],n[2],n[3]]); }
+    else if(o.rhythm==='swing'){ q=q.map(n=>[n[0]%(PPQ/2)===PPQ/4?n[0]+Math.round(PPQ/12):n[0],n[1],n[2],n[3]]); }
+    else if(o.rhythm==='sparse'){ const gs=groups(q); const keep=new Set(gs.filter(([tm],i)=>i===0||tm%PPQ===0||R()<0.4).map(g=>g[0])); q=q.filter(n=>keep.has(n[0])); }
+    else if(o.rhythm==='busy'){ const gs=groups(q), add=[];
+      for(let i=0;i<gs.length;i++){ const [t0,a]=gs[i], t1=i+1<gs.length?gs[i+1][0]:L+gs[0][0], gap=t1-t0;
+        if(gap>=PPQ/2&&R()<0.75){ const top=a.reduce((m,n)=>n[1]>m[1]?n:m), nxt=(gs[(i+1)%gs.length][1]).reduce((m,n)=>n[1]>m[1]?n:m);
+          let pitch=top[1]; if(sc){ const d0=toDeg(sc,top[1]), d1=toDeg(sc,nxt[1]); pitch=fromDeg(sc,d1===d0?d0+(R()<.5?1:-1):d0+Math.sign(d1-d0)); }
+          const tm=t0+Math.round(gap/2/(PPQ/4))*(PPQ/4); if(tm<L) add.push([tm,pitch,top[2]*0.8,Math.min(gap/2,PPQ)]); } }
+      q=q.concat(add); }
+    return [q,len]; };
+  // pitch, always kept in the key
+  const pitch=pat=>{ if(drum||o.pitch==='keep') return pat.map(n=>n.slice());
+    if(o.pitch==='oct+') return pat.map(n=>[n[0],n[1]+12,n[2],n[3]]);
+    if(o.pitch==='oct-') return pat.map(n=>[n[0],n[1]-12,n[2],n[3]]);
+    if(!sc) return pat.map(n=>n.slice());
+    const ds=pat.map(n=>toDeg(sc,n[1]));
+    if(/^step/.test(o.pitch)){ const k=+o.pitch.slice(4); return pat.map((n,i)=>[n[0],fromDeg(sc,ds[i]+k),n[2],n[3]]); }
+    if(o.pitch==='invert'){ const s=ds.slice().sort((a,b)=>a-b), axis=s[s.length>>1]; return pat.map((n,i)=>[n[0],fromDeg(sc,2*axis-ds[i]),n[2],n[3]]); }
+    const gs=groups(pat.map((n,i)=>[...n,ds[i]]));
+    if(o.pitch==='reverse'){ const roots=gs.map(([,a])=>Math.min(...a.map(n=>n[4]))).reverse();
+      return gs.flatMap(([,a],i)=>{ const r0=Math.min(...a.map(n=>n[4])); return a.map(n=>[n[0],fromDeg(sc,n[4]-r0+roots[i]),n[2],n[3]]); }); }
+    // new notes: a fresh line in the key that keeps the rhythm, range and chord shapes
+    const lo=Math.min(...ds), hi=Math.max(...ds,lo+4); let cur=Math.min(...gs[0][1].map(n=>n[4]));
+    const tonicDeg=d=>((d%7)+7)%7===0;
+    return gs.flatMap(([,a],i)=>{ const r0=Math.min(...a.map(n=>n[4]));
+      if(i>0){ const moves=[-2,-1,-1,1,1,2,3,-3,0]; let m=moves[Math.floor(R()*moves.length)], nx=cur+m;
+        if(nx<lo||nx>hi) nx=cur-m; if(i===gs.length-1&&R()<0.6){ for(let d=0;d<4;d++){ if(tonicDeg(nx+d)&&nx+d<=hi){nx+=d;break;} if(tonicDeg(nx-d)&&nx-d>=lo){nx-=d;break;} } }
+        cur=Math.max(lo,Math.min(hi,nx)); }
+      return a.map(n=>[n[0],fromDeg(sc,n[4]-r0+cur),n[2],n[3]]); }); };
+  let [base,bl]=rhythm(ns); const varied=pitch(base);
+  // length
+  let target=bl;
+  if(o.len==='half') target=Math.max(PPQ,bl/2); else if(o.len==='double') target=bl*2; else if(/^bars/.test(o.len)) target=+o.len.slice(4)*PPQ*4;
+  let out=[];
+  for(let k=0;k*bl<target;k++){ const src=(o.fill==='answer'&&target>bl)?(k%2?varied:base):varied; for(const n of src) if(n[0]+k*bl<target) out.push([n[0]+k*bl,n[1],n[2],n[3]]); }
+  // velocity
+  const vr=o.vel;
+  out=out.map(n=>{ let v=n[2];
+    if(vr!=='keep'){ const beat=n[0]%(PPQ*4), on=n[0]%PPQ===0, eighth=n[0]%(PPQ/2)===0;
+      const accent=beat===0?1.12:(beat===PPQ*2?1.06:(on?1.0:(eighth?0.9:0.82)));
+      if(vr==='natural'){ v=v*accent+(R()-0.5)*14; v=v*0.85+96*0.15*accent; }
+      else if(vr==='up') v=v*(0.6+0.5*n[0]/target)*accent+(R()-0.5)*8;
+      else if(vr==='down') v=v*(1.1-0.5*n[0]/target)*accent+(R()-0.5)*8;
+      else if(vr==='flat') v=100; }
+    return [Math.max(0,Math.round(n[0])),Math.max(0,Math.min(127,Math.round(n[1]))),Math.max(1,Math.min(127,Math.round(v))),Math.max(10,Math.min(Math.round(n[3]),target-Math.round(n[0])))]; });
+  // tiny timing drift on 'natural' so repeats don't sound copied
+  if(vr==='natural') out=out.map(n=>[n[0]%PPQ===0?n[0]:Math.max(0,n[0]+Math.round((R()-0.5)*8)),n[1],n[2],n[3]]);
+  out.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+  return {notes:out,len:target};
+}
+let varState=null; // {clip, opts, result}
+
 /* ---------- edit state ---------- */
 function snapshot(){ return {tracks:S.tracks.slice(), rows:snapRows()}; }
-function snapRows(){ return S.rows.map(r=>({r,name:r.name,colour:r.colour,clips:Object.fromEntries(Object.entries(r.clips).map(([k,c])=>[k,[c.n,c.colour]]))})); }
+function snapRows(){ return S.rows.map(r=>({r,name:r.name,colour:r.colour,clips:Object.fromEntries(Object.entries(r.clips).map(([k,c])=>[k,[c.n,c.colour,c]]))})); }
 function restore(snap){ S.tracks=snap.tracks; restoreRows(snap.rows); }
-function restoreRows(snap){ S.rows=snap.map(x=>{ x.r.name=x.name; x.r.colour=x.colour; for(const [k,[n,col]] of Object.entries(x.clips)){ x.r.clips[k].n=n; x.r.clips[k].colour=col; } return x.r; }); }
+function restoreRows(snap){ S.rows=snap.map(x=>{ x.r.name=x.name; x.r.colour=x.colour; x.r.clips={}; for(const [k,[n,col,c]] of Object.entries(x.clips)){ c.n=n; c.colour=col; x.r.clips[k]=c; } return x.r; }); }
 function change(fn,label){ undoStack.push(snapshot()); if(undoStack.length>200) undoStack.shift(); redoStack=[]; fn(); savedNote=''; afterChange(); if(label) toast(label,true); }
 function afterChange(){ pruneSel(); render(); inspector(); storeDraft(); }
 function pruneSel(){ const lt=new Set(S.tracks); for(const t of [...selTracks]) if(!lt.has(t)) selTracks.delete(t); const live=new Set(S.rows); for(const r of [...selRows]) if(!live.has(r)) selRows.delete(r); if(selClip&&!live.has(selClip.row)) selClip=null; }
-function isDirty(){ return S.tracks.some((t,i)=>t._src!==i) || S.rows.length!==S._n0 || S.rows.some((r,i)=>r._src!==i||r._copy||r.name!==r._name||r.colour!==r._colour||Object.values(r.clips).some(c=>c.n!==c._name||c.colour!==c._colour)); }
+function isDirty(){ return S.tracks.some((t,i)=>t._src!==i) || S.rows.length!==S._n0 || S.rows.some((r,i)=>r._src!==i||r._copy||r.name!==r._name||r.colour!==r._colour||r._only||Object.values(r.clips).some(c=>c._gen||c.n!==c._name||c.colour!==c._colour)); }
 function orderedSel(){ return S.rows.filter(r=>selRows.has(r)); }
 function cloneRow(r,newName){
   const c={...r,clips:{},_copy:true,name:newName};
@@ -294,13 +368,14 @@ function cloneRow(r,newName){
 const draftKey=()=>RAW?('clip-librarian:'+S.file+':'+RAW.size):null;
 function storeDraft(){ const k=draftKey(); if(!k) return;
   try{ if(!isDirty()){ localStorage.removeItem(k); return; }
-    localStorage.setItem(k,JSON.stringify({at:Date.now(),tracks:S.tracks.map(t=>t._src),rows:S.rows.map(r=>({src:r._src,copy:!!r._copy,name:r.name,colour:r.colour,clips:Object.fromEntries(Object.entries(r.clips).map(([kk,c])=>[kk,[c.n,c.colour]]))}))})); }catch(e){} }
+    localStorage.setItem(k,JSON.stringify({at:Date.now(),tracks:S.tracks.map(t=>t._src),rows:S.rows.map(r=>({src:r._src,copy:!!r._copy,name:r.name,colour:r.colour,only:r._only?Object.keys(r.clips):undefined,clips:Object.fromEntries(Object.entries(r.clips).map(([kk,c])=>[kk,c._gen?[c.n,c.colour,{notes:c.notes,len:c.len,loop:c.loop}]:[c.n,c.colour]]))}))})); }catch(e){} }
 function loadDraft(){ const k=draftKey(); if(!k) return null; try{ return JSON.parse(localStorage.getItem(k)||'null'); }catch(e){ return null; } }
 function applyDraft(d){
   const base=S._base;
   const tb=S._tbase;
   change(()=>{ if(Array.isArray(d.tracks)&&d.tracks.length===tb.length) S.tracks=d.tracks.map(i=>tb[i]).filter(Boolean); S.rows=d.rows.map(x=>{ const o=base[x.src]; if(!o) return null; const r=x.copy?cloneRow(o,x.name):o; r.name=x.name; r.colour=x.colour;
-      for(const [k,[n,col]] of Object.entries(x.clips||{})) if(r.clips[k]){ r.clips[k].n=n; r.clips[k].colour=col; } return r; }).filter(Boolean); },'Restored your unsaved edits');
+      if(x.only){ r.clips=Object.fromEntries(x.only.filter(k=>r.clips[k]).map(k=>[k,r.clips[k]])); r._only=true; }
+      for(const [k,[n,col,gen]] of Object.entries(x.clips||{})) if(r.clips[k]){ if(gen) r.clips[k]={...r.clips[k],...gen,_gen:true}; r.clips[k].n=n; r.clips[k].colour=col; } return r; }).filter(Boolean); },'Restored your unsaved edits');
 }
 
 /* ---------- operations ---------- */
@@ -351,7 +426,8 @@ async function doSave(opts={}){
   try{
     const source=opts.subset||S.rows;
     const rows=source.map(r=>{ const o={src:r._src}; if(r.name!==r._name) o.name=r.name; if(r.colour!==r._colour) o.colour=r.colour;
-      const ce={}; for(const [k,c] of Object.entries(r.clips)){ const e={}; if(c.n!==c._name) e.name=c.n; if(c.colour!==c._colour) e.colour=c.colour; if(Object.keys(e).length) ce[k]=e; }
+      if(r._only) o.keep=Object.keys(r.clips);
+      const ce={}; for(const [k,c] of Object.entries(r.clips)){ const e={}; if(c.n!==c._name) e.name=c.n; if(c.colour!==c._colour) e.colour=c.colour; if(c._gen) e.gen={notes:c.notes,len:c.len,loop:c.loop}; if(Object.keys(e).length) ce[k]=e; }
       if(Object.keys(ce).length) o.clips=ce; return o; });
     const text=RAW.head+rebuild(RAW.text,RAW.arr,rows,RAW.tarr,RAW.tarr?S.tracks.map(t=>t._src):null);
     const gz=await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
@@ -528,17 +604,52 @@ function clipPanel(box){
   ${ccs?`<dt>CC</dt><dd>${ccs}</dd>`:''}${c.at?`<dt>Pressure</dt><dd>${c.at} aftertouch events</dd>`:''}</dl>`;
   if(ns.length){h+=`<div class="sec">Notes</div><canvas class="roll" id="roll" aria-label="Piano roll of the clip"></canvas>
    <div class="tablebox"><table class="notes"><thead><tr><th>Pos</th><th>Note</th><th>Vel</th><th>Len</th></tr></thead><tbody>${ns.slice().sort((a,b)=>a[0]-b[0]).slice(0,256).map(n=>`<tr><td>${posStr(n[0])}</td><td>${noteName(n[1])} <span style="color:var(--muted)">${n[1]}</span></td><td>${n[2]}</td><td>${n[3]}</td></tr>`).join('')}</tbody></table></div>${ns.length>256?`<p class="hint">Showing the first 256 of ${ns.length} notes.</p>`:''}`;}
+  const canVar=ns.length&&[0,1,3,4].includes(t.type);
+  if(canVar){
+    if(!varState||varState.clip!==c) varState={clip:c,opts:{...VAR_DEFAULT,pitch:t.type===0?'keep':'new',seed:1+Math.floor(Math.random()*1e6)}};
+    const k=t.type===0?null:(clipKey(c,t)&&clipKey(c,t).conf!=='unclear'?clipKey(c,t):(rowKey(r)||clipKey(c,t)));
+    varState.key=k; varState.result=makeVariation(c,t,k,varState.opts);
+    const o=varState.opts, sel=(id,label,opts)=>`<div class="field"><label for="${id}">${label}</label><select id="${id}">${opts.map(([v,l])=>`<option value="${v}"${o[id.slice(2)]===v?' selected':''}>${l}</option>`).join('')}</select></div>`;
+    h+=`<div class="sec">Make a variation</div>
+    <p class="hint">${t.type===0?'Drum clip: rhythm, length and velocity can change; the sounds (pads) stay the same.':k?`Notes stay in ${esc(k.name)}.`:'Not enough notes to tell the key, so only octave moves change the notes.'}</p>
+    <div class="vargrid">
+    ${sel('v_len','Length',[['same','Same length'],['half','Half'],['double','Double'],['bars1','1 bar'],['bars2','2 bars'],['bars4','4 bars'],['bars8','8 bars'],['bars16','16 bars']])}
+    ${sel('v_fill','When longer',[['answer','Original + variation'],['repeat','Variation all through']])}
+    ${t.type===0?'':sel('v_pitch','Notes',[['new','New notes in key'],['keep','Keep notes'],['step1','Up 1 step in key'],['step2','Up 2 steps in key'],['step-1','Down 1 step in key'],['step-2','Down 2 steps in key'],['invert','Upside down (in key)'],['reverse','Reverse the line'],['oct+','Octave up'],['oct-','Octave down']])}
+    ${sel('v_rhythm','Rhythm',[['keep','Keep rhythm'],['busy','Busier'],['sparse','Sparser'],['nudge','Shift by a 16th'],['swing','Swing'],['double','Double time'],['half','Half time']])}
+    ${sel('v_vel','Velocity',[['natural','Natural'],['keep','Keep original'],['up','Build up'],['down','Fade down'],['flat','Even (100)']])}
+    </div>
+    <canvas class="roll" id="vroll" aria-label="Piano roll of the variation"></canvas>
+    <div class="varinfo"><span>${bars(varState.result.len)} · ${varState.result.notes.length} notes</span><button class="btn" id="v_again">Try another</button></div>
+    <div class="varbtns"><button class="btn primary" id="v_row">Add as new row below</button><button class="btn" id="v_only">New row with just this clip</button><button class="btn" id="v_replace">Replace this clip</button></div>
+    <p class="hint">Natural velocity accents the downbeats, softens the offbeats and adds small random changes so repeats don't sound copied. Nothing changes until you add or replace. "Try another" makes a different version with the same settings. Undo works as usual.</p>`;
+  }
   box.innerHTML=h;
+  if(canVar) wireVariation(r,t,c);
   const inp=$('clipname'); const commit=()=>{ const v=inp.value.trim(); if(v&&v!==c.n) change(()=>{c.n=v;},'Renamed clip'); };
   inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();commit();} if(e.key==='Escape'){inp.value=c.n;inp.blur();} e.stopPropagation(); }); inp.addEventListener('change',commit);
   if(ns.length) drawRoll(c, ty[1]);
+  if(canVar) drawRoll(varState.result, ty[1], 'vroll');
+}
+function wireVariation(r,t,c){
+  const ty=TYPES[t.type]||['?','--other'];
+  const upd=()=>{ varState.result=makeVariation(c,t,varState.key,varState.opts); drawRoll(varState.result,ty[1],'vroll');
+    document.querySelector('.varinfo span').textContent=`${bars(varState.result.len)} · ${varState.result.notes.length} notes`; };
+  ['v_len','v_fill','v_pitch','v_rhythm','v_vel'].forEach(id=>{ const el=$(id); if(el) el.onchange=()=>{ varState.opts[id.slice(2)]=el.value; upd(); }; });
+  $('v_again').onclick=()=>{ varState.opts.seed=1+Math.floor(Math.random()*1e6); upd(); };
+  const vclip=()=>({...c,notes:varState.result.notes,len:varState.result.len,loop:true,n:c.n.replace(/ var( \d+)?$/,'')+' var',_gen:true});
+  const nextName=()=>{ let i=2, nm=r.name+' var'; while(S.rows.some(x=>x.name===nm)) nm=r.name+' var '+(i++); return nm; };
+  const insert=row=>{ const at=S.rows.indexOf(r)+1; S.rows.splice(at,0,row); selClip={row,t:t.name}; varState=null; };
+  $('v_row').onclick=()=>change(()=>{ const row=cloneRow(r,nextName()); row.clips[t.name]=vclip(); insert(row); },'Added variation as a new row');
+  $('v_only').onclick=()=>change(()=>{ const row=cloneRow(r,nextName()); row.clips={[t.name]:vclip()}; row._only=true; insert(row); },'Added a row with just the variation');
+  $('v_replace').onclick=()=>change(()=>{ r.clips[t.name]=vclip(); selClip={row:r,t:t.name}; varState=null; },'Replaced the clip with the variation');
 }
 function trackSummary(){
   return `<div class="sec">Tracks</div><dl class="kv">${visibleTracks().map((t,k)=>`<dt>${k+1}</dt><dd>${esc(t.name)} <span style="color:var(--muted)">${(TYPES[t.type]||['?'])[0]}${t.out?' · '+esc(outLabel(t.out)):''}</span></dd>`).join('')}</dl>`;
 }
 const posStr=t=>{const bar=Math.floor(t/(PPQ*4))+1, beat=Math.floor((t%(PPQ*4))/PPQ)+1, tick=t%PPQ;return `${bar}.${beat}.${String(tick).padStart(3,'0')}`;};
-function drawRoll(c,tok){
-  const cv=$('roll'), dpr=window.devicePixelRatio||1, w=cv.clientWidth, h=cv.clientHeight; if(!w) return; cv.width=w*dpr; cv.height=h*dpr;
+function drawRoll(c,tok,id='roll'){
+  const cv=$(id), dpr=window.devicePixelRatio||1, w=cv.clientWidth, h=cv.clientHeight; if(!w) return; cv.width=w*dpr; cv.height=h*dpr;
   const g=cv.getContext('2d'); g.scale(dpr,dpr);
   const cs=getComputedStyle(document.documentElement), col=cs.getPropertyValue(tok).trim(), line=cs.getPropertyValue('--line').trim();
   const ns=c.notes, lo=Math.min(...ns.map(n=>n[1]))-1, hi=Math.max(...ns.map(n=>n[1]))+1, L=Math.max(c.len,1);
