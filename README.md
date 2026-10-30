@@ -10,7 +10,7 @@ A browser tool for planning live sets in **MPC 3** projects (`.xpj`). Open a pro
 - An inspector for each clip shows its notes as a piano roll and a list, plus program changes, CCs and audio.
 - Reorder rows by dragging, with ↑/↓ or Alt+arrows. Single or multiple selection with Shift or Cmd/Ctrl.
 - Copy, paste and delete rows, with undo and redo.
-- Rename rows and clips and change their colours.
+- Rename rows and clips and change their colours, or name all the numbered rows ("2", "3"…) after their song in one go.
 - Shows the musical key of each row and clip (a best guess from the notes), an overview of the keys in the set, and which rows mix well together by key (Camelot wheel).
 - Reorder tracks.
 - **Make a variation** of any clip: change its length, give it new notes in the same key, move it up or down in the key, invert or reverse it, make the rhythm busier, sparser, swung, double or half time, and give it natural velocity. Add it as a new row or replace the clip.

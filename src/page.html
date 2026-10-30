@@ -278,6 +278,20 @@ function keyDist(a,b){ const d=Math.abs(a.num-b.num), w=Math.min(d,12-d); return
 let keyFilter=null; // Camelot code to show, or null
 let mixRow=null;    // when set, only rows that mix well with this row are shown
 
+/* ---------- tidy row names ---------- */
+const UNNAMED=/^\s*(?:(?:sequence|scene|row)\s*)?\d*\s*$/i;
+// rows called just "2", "3" (or empty) are named after the named row above them: "My retreat - 2"
+function plannedNames(scope){ const out=new Map(); let base=null, k=1;
+  for(const r of S.rows){ if(!UNNAMED.test(r.name)){ base=r.name.replace(/ - \d+$/,''); k=/ - (\d+)$/.test(r.name)?+r.name.match(/ - (\d+)$/)[1]:1; continue; }
+    k++; if(base&&(!scope||scope.has(r))) out.set(r,`${base} - ${k}`); }
+  return out; }
+function tidyPanel(scope){ const plan=plannedNames(scope); if(!plan.size) return '';
+  const ex=[...plan.entries()].slice(0,3).map(([r,n])=>`“${esc(r.name)}” → “${esc(n)}”`).join(', ');
+  return `<div class="sec">Tidy row names</div><button class="btn" id="tidy">Name ${plan.size} numbered row${plan.size>1?'s':''} after ${plan.size>1?'their song':'its song'}</button>
+  <p class="hint">Rows called just a number take the name of the named row above them, for example ${ex}. ${scope?'Only the selected rows change.':'Select some rows first to rename only those.'} Undo puts the old names back.</p>`; }
+function wireTidy(box,scope){ const b=box.querySelector('#tidy'); if(b) b.onclick=()=>{ const plan=plannedNames(scope);
+  change(()=>{ for(const [r,n] of plan) r.name=n; },`Renamed ${plan.size} row${plan.size>1?'s':''}`); }; }
+
 /* ---------- clip variations ---------- */
 const SCALES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10]};
 function rng(seed){ let s=seed>>>0||1; return ()=>{ s^=s<<13; s>>>=0; s^=s>>>17; s^=s<<5; s>>>=0; return s/4294967296; }; }
@@ -544,20 +558,21 @@ function inspector(){
       ${one?`<div class="field"><label for="rowname">Row name</label><input type="text" id="rowname" value="${esc(one.name)}"></div>`:''}
       <div class="field"><label>Row colour${one?'':' (all selected)'}</label>${swatches(cur,true,'rowcol')}</div>
       <p class="hint">Drag the row names to move ${one?'this row':'these rows'}, or use ↑ Up and ↓ Down. Copy and Paste put copies right after the selection.</p>
+      ${one?'':tidyPanel(new Set(rs))}
       <div class="sec">New project from ${one?'this row':'these rows'}</div>
       <div class="field"><label for="exname">Project name</label><input type="text" id="exname" value="${esc(S.file.replace(/\.xpj$/i,'')+' - '+rs[0].name+(rs.length>1?' to '+rs[rs.length-1].name:''))}"></div>
       <button class="btn primary" id="exsave" ${RAW?'':'disabled'}>Save ${rs.length} row${rs.length>1?'s':''} as new project</button>
       <p class="hint">${RAW?'Makes a separate project with just these rows, ready for recording them as tracks. All tracks, sounds and mixer settings come along, and your edits to these rows are included.':'Open your own .xpj project to save rows as a new project.'}</p>
       <div class="sec">Shortcuts</div>${keysHelp()}`;
-    if(one) wireMix(box,one);
+    if(one) wireMix(box,one); else wireTidy(box,new Set(rs));
     const ex=$('exsave'); if(ex) ex.onclick=()=>doSave({subset:orderedSel(),name:$('exname').value,btn:ex});
     const exn=$('exname'); if(exn) exn.addEventListener('keydown',e=>e.stopPropagation());
     const inp=$('rowname'); if(inp){ const commit=()=>{ const v=inp.value.trim(); if(v&&v!==one.name) change(()=>{one.name=v;},'Renamed row'); };
       inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();commit();} if(e.key==='Escape'){inp.value=one.name;inp.blur();} e.stopPropagation(); }); inp.addEventListener('change',commit); }
     return;
   }
-  box.innerHTML=`<div><h2>Inspector</h2><div class="sub">Select a row or a clip to edit it.</div></div><p class="hint">Each row is a scene in the clip matrix and each column is a track, left to right as on the MPC. Rows show their original position when moved, so you can see what changed before saving.</p>${keyOverview()}<div class="sec">Shortcuts</div>${keysHelp()}`+trackSummary();
-  wireKeyList(box);
+  box.innerHTML=`<div><h2>Inspector</h2><div class="sub">Select a row or a clip to edit it.</div></div><p class="hint">Each row is a scene in the clip matrix and each column is a track, left to right as on the MPC. Rows show their original position when moved, so you can see what changed before saving.</p>${tidyPanel(null)}${keyOverview()}<div class="sec">Shortcuts</div>${keysHelp()}`+trackSummary();
+  wireKeyList(box); wireTidy(box,null);
 }
 function rowKeyPanel(r){ const k=rowKey(r);
   if(!k) return `<div class="sec">Key</div><p class="hint">No melodic notes in this row (drums and audio can't be read for key).</p>`;
