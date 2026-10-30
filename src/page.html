@@ -432,7 +432,7 @@ async function doSave(opts={}){
     const text=RAW.head+rebuild(RAW.text,RAW.arr,rows,RAW.tarr,RAW.tarr?S.tracks.map(t=>t._src):null);
     const gz=await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
     const base=S.file.replace(/\.xpj$/i,'');
-    const name=(opts.name||base+' (Clip Librarian)').replace(/[\\/:*?"<>|]+/g,'-').trim()||base+' extract';
+    const name=(opts.name||base+' Clip Librarian').replace(/[()\[\]{}]+/g,' ').replace(/[\\/:*?"<>|]+/g,'-').replace(/\s+/g,' ').trim()||base+' extract';
     if(standalone){
       const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([gz],{type:'application/octet-stream'})); a.download=name+'.xpj';
       document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},4000);
