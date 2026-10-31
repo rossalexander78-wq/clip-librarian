@@ -170,7 +170,7 @@ canvas.roll{width:100%;height:150px;background:var(--panel-2);border:1px solid v
     <div class="banner" id="banner"></div>
     <div class="spacer"></div>
     <input type="search" id="q" placeholder="Filter rows by name or key (Am, 8A)" aria-label="Filter rows by name or key">
-    <label><input type="checkbox" id="hideEmptyRows" checked> Hide empty rows</label>
+    <label style="white-space:nowrap"><input type="checkbox" id="hideEmptyRows"> Hide empty rows <span id="emptyCount"></span></label>
     <label><input type="checkbox" id="hideMix" checked> Hide mixer tracks</label>
   </div>
   <div class="legend" id="legend"></div>
@@ -535,6 +535,7 @@ function render(){
   const q=$('q').value.trim();
   $('banner').innerHTML=`<span class="tag">${esc(S.file)}</span>${S.sample?`<span>${esc(S.note||'Built-in example set. Try editing it here, then open your own MPC 3 project to save a copy.')}</span>`:`<span>MPC ${esc(S.version)} · your original file is never changed</span>`}${q||keyFilter||mixRow?`<span>${vr.length} rows ${mixRow?`that mix with ${esc(mixRow.name)} · <a href="#" id="clearkey">show all</a>`:keyFilter?`in ${esc(keyFilter)} · <a href="#" id="clearkey">show all</a>`:'match'}</span>`:''}`;
   { const ck=$('clearkey'); if(ck) ck.onclick=e=>{e.preventDefault(); keyFilter=null; mixRow=null; render(); inspector();}; }
+  { const ne=S.rows.filter(r=>!Object.keys(r.clips).length).length; $('emptyCount').textContent=ne?`(${ne})`:''; }
   $('legend').innerHTML=[0,4,3,1,6].map(k=>`<span><i style="background:var(${TYPES[k][1]})"></i>${TYPES[k][0]}</span>`).join('')+'<span style="color:var(--accent)">PC = program change</span>';
   updateBar();
 }
