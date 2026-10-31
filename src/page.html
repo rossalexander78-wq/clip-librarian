@@ -307,7 +307,7 @@ function toDeg(sc,p){ // nearest note of the scale, as a degree count from C-1
   return best[1]; }
 function fromDeg(sc,d){ const o=Math.floor(d/7), i=((d%7)+7)%7; return sc.tonic+o*12+sc.steps[i]; }
 function groups(ns){ const g=new Map(); for(const n of ns){ if(!g.has(n[0])) g.set(n[0],[]); g.get(n[0]).push(n); } return [...g.entries()].sort((a,b)=>a[0]-b[0]); }
-const VAR_DEFAULT={len:'same',fill:'answer',pitch:'new',rhythm:'keep',vel:'natural',part:'auto',seed:1};
+const VAR_DEFAULT={len:'same',fill:'repeat',pitch:'new',rhythm:'keep',vel:'natural',part:'auto',seed:1};
 // held chords (2+ notes together, held a beat or more) and the single-note line are treated as separate parts
 function splitLayers(ns){ const line=[], chords=[];
   for(const [,a] of groups(ns)){ const held=a.length>=2&&a.reduce((s,n)=>s+n[3],0)/a.length>=PPQ; (held?chords:line).push(...a); }
@@ -352,13 +352,13 @@ function makeVariation(c,t,key,o){
       return a.map(n=>[n[0],fromDeg(sc,n[4]-r0+cur),n[2],n[3]]); }); };
   // vary each part on its own so a line never gets mixed into the chords
   const lay=splitLayers(ns), both=lay.line.length&&lay.chords.length;
-  const part=o.part==='auto'?(both?'line':'all'):o.part;
+  const part=o.part==='auto'?'all':o.part;
   const parts=both?[[lay.line,part!=='chords'],[lay.chords,part!=='line']]:[[ns,true]];
   let base=[], varied=[], bl=L;
   for(const [pat,on] of parts){ const [b,len]=rhythm(pat,on); bl=len; base=base.concat(b); varied=varied.concat(on?pitch(b):b.map(n=>n.slice())); }
   // length
   let target=bl;
-  if(o.len==='half') target=Math.max(PPQ,bl/2); else if(o.len==='double') target=bl*2; else if(/^bars/.test(o.len)) target=+o.len.slice(4)*PPQ*4;
+  if(o.len==='half') target=Math.max(PPQ,bl/2); else if(o.len==='double') target=bl*2; else if(/^bars/.test(o.len)) target=Math.round(+o.len.slice(4)*PPQ*4);
   let out=[];
   for(let k=0;k*bl<target;k++){ const src=(o.fill==='answer'&&target>bl)?(k%2?varied:base):varied; for(const n of src) if(n[0]+k*bl<target) out.push([n[0]+k*bl,n[1],n[2],n[3]]); }
   // velocity
@@ -644,19 +644,19 @@ function clipPanel(box){
     { const L2=splitLayers(c.notes); varState.both=t.type!==0&&L2.line.length>0&&L2.chords.length>0; varState.layers=L2; }
     const o=varState.opts, sel=(id,label,opts)=>`<div class="field"><label for="${id}">${label}</label><select id="${id}">${opts.map(([v,l])=>`<option value="${v}"${o[id.slice(2)]===v?' selected':''}>${l}</option>`).join('')}</select></div>`;
     h+=`<div class="sec">Make a variation</div>
-    <p class="hint">${t.type===0?'Drum clip: rhythm, length and velocity can change; the sounds (pads) stay the same.':k?`Notes stay in ${esc(k.name)}.`:'Not enough notes to tell the key, so only octave moves change the notes.'}${varState.both?` This clip has held chords (${varState.layers.chords.length} notes) and a single-note line (${varState.layers.line.length} notes). They are varied separately so they never get mixed; by default only the line changes.`:''}</p>
+    <p class="hint">${t.type===0?'Drum clip: rhythm, length and velocity can change; the sounds (pads) stay the same.':k?`Notes stay in ${esc(k.name)}.`:'Not enough notes to tell the key, so only octave moves change the notes.'}${varState.both?` This clip has held chords (${varState.layers.chords.length} notes) and a single-note line (${varState.layers.line.length} notes). Chords stay chords and single notes stay single notes, so they never get mixed.`:''}</p>
     <div class="vargrid">
-    ${sel('v_len','Length',[['same','Same length'],['half','Half'],['double','Double'],['bars1','1 bar'],['bars2','2 bars'],['bars4','4 bars'],['bars8','8 bars'],['bars16','16 bars']])}
-    ${sel('v_fill','When longer',[['answer','Original + variation'],['repeat','Variation all through']])}
+    ${sel('v_len','Length',[['same',`Same (${bars(c.len)})`],['half','Half'],['double','Double'],['bars0.5','½ bar'],['bars1','1 bar'],['bars2','2 bars'],['bars3','3 bars'],['bars4','4 bars'],['bars6','6 bars'],['bars8','8 bars'],['bars12','12 bars'],['bars16','16 bars'],['bars32','32 bars']])}
+    ${sel('v_fill','Notes in the new clip',[['repeat','Variation only (replaces the notes)'],['answer','Original first, then variation']])}
     ${t.type===0?'':sel('v_pitch','Notes',[['new','New notes in key'],['keep','Keep notes'],['step1','Up 1 step in key'],['step2','Up 2 steps in key'],['step-1','Down 1 step in key'],['step-2','Down 2 steps in key'],['invert','Upside down (in key)'],['reverse','Reverse the line'],['oct+','Octave up'],['oct-','Octave down']])}
-    ${t.type!==0&&varState.both?sel('v_part','Which part',[['auto','Just the line (default)'],['chords','Just the chords'],['all','Both, separately']]):''}
+    ${t.type!==0&&varState.both?sel('v_part','What changes',[['auto','Whole clip'],['line','Just the single notes'],['chords','Just the chords']]):''}
     ${sel('v_rhythm','Rhythm',[['keep','Keep rhythm'],['busy','Busier'],['sparse','Sparser'],['nudge','Shift by a 16th'],['swing','Swing'],['double','Double time'],['half','Half time']])}
     ${sel('v_vel','Velocity',[['natural','Natural'],['keep','Keep original'],['up','Build up'],['down','Fade down'],['flat','Even (100)']])}
     </div>
     <canvas class="roll" id="vroll" aria-label="Piano roll of the variation"></canvas>
     <div class="varinfo"><span>${bars(varState.result.len)} · ${varState.result.notes.length} notes</span><button class="btn" id="v_again">Try another</button></div>
-    <div class="varbtns"><button class="btn primary" id="v_row">Add as new row below</button><button class="btn" id="v_only">New row with just this clip</button></div>
-    <p class="hint">The variation goes on a new row under this song, named “${esc(varNames(r,c).row)}”, with the clip named “${esc(varNames(r,c).clip)}”. The original clip is never changed. Natural velocity accents the downbeats, softens the offbeats and adds small random changes so repeats don't sound copied. Nothing changes until you add or replace. "Try another" makes a different version with the same settings. Undo works as usual.</p>`;
+    <div class="varbtns"><button class="btn primary" id="v_row">Add as new row below</button></div>
+    <p class="hint">The variation goes on a new row under this song with all the other clips from this row, so it plays with the same parts. The row is named “${esc(varNames(r,c).row)}” and the clip “${esc(varNames(r,c).clip)}”. The original clip is never changed. Natural velocity accents the downbeats, softens the offbeats and adds small random changes so repeats don't sound copied. Nothing changes until you add or replace. "Try another" makes a different version with the same settings. Undo works as usual.</p>`;
   }
   box.innerHTML=h;
   if(canVar) wireVariation(r,t,c);
@@ -677,7 +677,6 @@ function wireVariation(r,t,c){
     while(at<S.rows.length&&new RegExp('^'+base.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+' var \\d+$').test(S.rows[at].name)) at++;
     S.rows.splice(at,0,row); selClip={row,t:t.name}; varState=null; };
   $('v_row').onclick=()=>change(()=>{ const row=cloneRow(r,nm.row); row.clips[t.name]=vclip(); insert(row); },`Added ${nm.row}`);
-  $('v_only').onclick=()=>change(()=>{ const row=cloneRow(r,nm.row); row.clips={[t.name]:vclip()}; row._only=true; insert(row); },`Added ${nm.row}`);
 }
 // "Hardgroove 1 var 1", "var 2"… numbered per song; the clip gets the same number
 function varNames(r,c){ const base=r.name.replace(/ var \d+$/,'').replace(/ var$/,'');
