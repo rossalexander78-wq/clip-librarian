@@ -388,6 +388,11 @@ function tidyPanel(scope){ const plan=plannedNames(scope); if(!plan.size) return
   const ex=[...plan.entries()].slice(0,3).map(([r,n])=>`“${esc(r.name)}” → “${esc(n)}”`).join(', ');
   return `<div class="sec">Tidy row names</div><button class="btn" id="tidy">Name ${plan.size} numbered row${plan.size>1?'s':''} after ${plan.size>1?'their song':'its song'}</button>
   <p class="hint">Rows called just a number take the name of the named row above them, for example ${ex}. ${scope?'Only the selected rows change.':'Select some rows first to rename only those.'} Undo puts the old names back.</p>`; }
+function emptyPanel(){ const n=S.rows.filter(r=>!Object.keys(r.clips).length).length; if(!n) return '';
+  return `<div class="sec">Empty rows</div><button class="btn" id="noempty">Remove ${n} empty row${n>1?'s':''}</button>
+  <p class="hint">Rows with no clips are hidden here while “Hide empty rows” is ticked, but they still show on the MPC. This removes them and keeps every other row in its place. Undo brings them back.</p>`; }
+function wireEmpty(box){ const b=box.querySelector('#noempty'); if(b) b.onclick=()=>{ const n=S.rows.filter(r=>!Object.keys(r.clips).length).length;
+  change(()=>{ S.rows=S.rows.filter(r=>Object.keys(r.clips).length); },`Removed ${n} empty row${n>1?'s':''}`); }; }
 function wireTidy(box,scope){ const b=box.querySelector('#tidy'); if(b) b.onclick=()=>{ const plan=plannedNames(scope);
   change(()=>{ for(const [r,n] of plan) r.name=n; },`Renamed ${plan.size} row${plan.size>1?'s':''}`); }; }
 
@@ -681,8 +686,8 @@ function inspector(){
       inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();commit();} if(e.key==='Escape'){inp.value=one.name;inp.blur();} e.stopPropagation(); }); inp.addEventListener('change',commit); }
     return;
   }
-  box.innerHTML=`<div><h2>Inspector</h2><div class="sub">Select a row or a clip to edit it.</div></div><p class="hint">Each row is a scene in the clip matrix and each column is a track, left to right as on the MPC. Rows show their original position when moved, so you can see what changed before saving.</p>${tidyPanel(null)}${keyOverview()}<div class="sec">Shortcuts</div>${keysHelp()}`+trackSummary();
-  wireKeyList(box); wireTidy(box,null);
+  box.innerHTML=`<div><h2>Inspector</h2><div class="sub">Select a row or a clip to edit it.</div></div><p class="hint">Each row is a scene in the clip matrix and each column is a track, left to right as on the MPC. Rows show their original position when moved, so you can see what changed before saving.</p>${emptyPanel()}${tidyPanel(null)}${keyOverview()}<div class="sec">Shortcuts</div>${keysHelp()}`+trackSummary();
+  wireKeyList(box); wireTidy(box,null); wireEmpty(box);
 }
 function rowKeyPanel(r){ const k=rowKey(r);
   if(!k) return `<div class="sec">Key</div><p class="hint">No melodic notes in this row (drums and audio can't be read for key).</p>`;
