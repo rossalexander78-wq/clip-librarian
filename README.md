@@ -13,7 +13,7 @@ A browser tool for planning live sets in **MPC 3** projects (`.xpj`). Open a pro
 - Rename rows and clips and change their colours, or name all the numbered rows ("2", "3"…) after their song in one go.
 - Shows the musical key of each row and clip (a best guess from the notes), an overview of the keys in the set, and which rows mix well together by key (Camelot wheel).
 - Reorder tracks.
-- **Make a variation** of any clip: change its length, give it new notes in the same key, move it up or down in the key, invert or reverse it, make the rhythm busier, sparser, swung, double or half time, and give it natural velocity. Add it as a new row or replace the clip.
+- **Make a variation** of any clip: change its length, give it new notes in the same key, move it up or down in the key, invert or reverse it, make the rhythm busier, sparser, swung, double or half time, and give it natural velocity. Each variation goes on a new numbered row (e.g. "Hardgroove 1 var 1") and the original clip is never changed. Held chords and single-note lines are varied separately.
 - **New project from these rows**: save just the selected rows as a separate project, to pull parts of a set out for recording.
 
 Your original file is never changed. Saves always go to a new copy named "… Clip Librarian.xpj". Only the parts you edited are rewritten; every other byte of the project is kept as it was.

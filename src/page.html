@@ -282,7 +282,7 @@ let mixRow=null;    // when set, only rows that mix well with this row are shown
 const UNNAMED=/^\s*(?:(?:sequence|scene|row)\s*)?\d*\s*$/i;
 // rows called just "2", "3" (or empty) are named after the named row above them: "My retreat - 2"
 function plannedNames(scope){ const out=new Map(); let base=null, k=1;
-  for(const r of S.rows){ if(!UNNAMED.test(r.name)){ base=r.name.replace(/ - \d+$/,''); k=/ - (\d+)$/.test(r.name)?+r.name.match(/ - (\d+)$/)[1]:1; continue; }
+  for(const r of S.rows){ if(!UNNAMED.test(r.name)){ const b=r.name.replace(/ - \d+$/,''), m=r.name.match(/ - (\d+)$/); k=m?+m[1]:(b===base?k+1:1); base=b; continue; }
     k++; if(base&&(!scope||scope.has(r))) out.set(r,`${base} - ${k}`); }
   return out; }
 function tidyPanel(scope){ const plan=plannedNames(scope); if(!plan.size) return '';
@@ -302,12 +302,18 @@ function toDeg(sc,p){ // nearest note of the scale, as a degree count from C-1
   return best[1]; }
 function fromDeg(sc,d){ const o=Math.floor(d/7), i=((d%7)+7)%7; return sc.tonic+o*12+sc.steps[i]; }
 function groups(ns){ const g=new Map(); for(const n of ns){ if(!g.has(n[0])) g.set(n[0],[]); g.get(n[0]).push(n); } return [...g.entries()].sort((a,b)=>a[0]-b[0]); }
-const VAR_DEFAULT={len:'same',fill:'answer',pitch:'new',rhythm:'keep',vel:'natural',seed:1};
+const VAR_DEFAULT={len:'same',fill:'answer',pitch:'new',rhythm:'keep',vel:'natural',part:'auto',seed:1};
+// held chords (2+ notes together, held a beat or more) and the single-note line are treated as separate parts
+function splitLayers(ns){ const line=[], chords=[];
+  for(const [,a] of groups(ns)){ const held=a.length>=2&&a.reduce((s,n)=>s+n[3],0)/a.length>=PPQ; (held?chords:line).push(...a); }
+  return {line,chords}; }
 function makeVariation(c,t,key,o){
   const R=rng(o.seed*2654435761), drum=t.type===0, sc=drum?null:scaleOf(key);
   let L=c.len||PPQ*16, ns=c.notes.map(n=>n.slice());
   // rhythm
-  const rhythm=pat=>{ let q=pat.map(n=>n.slice()), len=L;
+  const GLOBAL=new Set(['double','half','nudge','swing']);
+  const rhythm=(pat,on=true)=>{ let q=pat.map(n=>n.slice()), len=L; if(!on&&!GLOBAL.has(o.rhythm)) return [q,len];
+    if(!pat.length) return [q,o.rhythm==='half'?L*2:L];
     if(o.rhythm==='double'){ q=q.map(n=>[n[0]/2,n[1],n[2],n[3]/2]); q=q.concat(q.map(n=>[n[0]+L/2,n[1],n[2],n[3]])); }
     else if(o.rhythm==='half'){ q=q.map(n=>[n[0]*2,n[1],n[2],n[3]*2]); len=L*2; }
     else if(o.rhythm==='nudge'){ q=q.map(n=>[(n[0]+PPQ/4)%L,n[1],n[2],n[3]]); }
@@ -339,7 +345,12 @@ function makeVariation(c,t,key,o){
         if(nx<lo||nx>hi) nx=cur-m; if(i===gs.length-1&&R()<0.6){ for(let d=0;d<4;d++){ if(tonicDeg(nx+d)&&nx+d<=hi){nx+=d;break;} if(tonicDeg(nx-d)&&nx-d>=lo){nx-=d;break;} } }
         cur=Math.max(lo,Math.min(hi,nx)); }
       return a.map(n=>[n[0],fromDeg(sc,n[4]-r0+cur),n[2],n[3]]); }); };
-  let [base,bl]=rhythm(ns); const varied=pitch(base);
+  // vary each part on its own so a line never gets mixed into the chords
+  const lay=splitLayers(ns), both=lay.line.length&&lay.chords.length;
+  const part=o.part==='auto'?(both?'line':'all'):o.part;
+  const parts=both?[[lay.line,part!=='chords'],[lay.chords,part!=='line']]:[[ns,true]];
+  let base=[], varied=[], bl=L;
+  for(const [pat,on] of parts){ const [b,len]=rhythm(pat,on); bl=len; base=base.concat(b); varied=varied.concat(on?pitch(b):b.map(n=>n.slice())); }
   // length
   let target=bl;
   if(o.len==='half') target=Math.max(PPQ,bl/2); else if(o.len==='double') target=bl*2; else if(/^bars/.test(o.len)) target=+o.len.slice(4)*PPQ*4;
@@ -624,20 +635,22 @@ function clipPanel(box){
     if(!varState||varState.clip!==c) varState={clip:c,opts:{...VAR_DEFAULT,pitch:t.type===0?'keep':'new',seed:1+Math.floor(Math.random()*1e6)}};
     const k=t.type===0?null:(clipKey(c,t)&&clipKey(c,t).conf!=='unclear'?clipKey(c,t):(rowKey(r)||clipKey(c,t)));
     varState.key=k; varState.result=makeVariation(c,t,k,varState.opts);
+    { const L2=splitLayers(c.notes); varState.both=t.type!==0&&L2.line.length>0&&L2.chords.length>0; varState.layers=L2; }
     const o=varState.opts, sel=(id,label,opts)=>`<div class="field"><label for="${id}">${label}</label><select id="${id}">${opts.map(([v,l])=>`<option value="${v}"${o[id.slice(2)]===v?' selected':''}>${l}</option>`).join('')}</select></div>`;
     h+=`<div class="sec">Make a variation</div>
-    <p class="hint">${t.type===0?'Drum clip: rhythm, length and velocity can change; the sounds (pads) stay the same.':k?`Notes stay in ${esc(k.name)}.`:'Not enough notes to tell the key, so only octave moves change the notes.'}</p>
+    <p class="hint">${t.type===0?'Drum clip: rhythm, length and velocity can change; the sounds (pads) stay the same.':k?`Notes stay in ${esc(k.name)}.`:'Not enough notes to tell the key, so only octave moves change the notes.'}${varState.both?` This clip has held chords (${varState.layers.chords.length} notes) and a single-note line (${varState.layers.line.length} notes). They are varied separately so they never get mixed; by default only the line changes.`:''}</p>
     <div class="vargrid">
     ${sel('v_len','Length',[['same','Same length'],['half','Half'],['double','Double'],['bars1','1 bar'],['bars2','2 bars'],['bars4','4 bars'],['bars8','8 bars'],['bars16','16 bars']])}
     ${sel('v_fill','When longer',[['answer','Original + variation'],['repeat','Variation all through']])}
     ${t.type===0?'':sel('v_pitch','Notes',[['new','New notes in key'],['keep','Keep notes'],['step1','Up 1 step in key'],['step2','Up 2 steps in key'],['step-1','Down 1 step in key'],['step-2','Down 2 steps in key'],['invert','Upside down (in key)'],['reverse','Reverse the line'],['oct+','Octave up'],['oct-','Octave down']])}
+    ${t.type!==0&&varState.both?sel('v_part','Which part',[['auto','Just the line (default)'],['chords','Just the chords'],['all','Both, separately']]):''}
     ${sel('v_rhythm','Rhythm',[['keep','Keep rhythm'],['busy','Busier'],['sparse','Sparser'],['nudge','Shift by a 16th'],['swing','Swing'],['double','Double time'],['half','Half time']])}
     ${sel('v_vel','Velocity',[['natural','Natural'],['keep','Keep original'],['up','Build up'],['down','Fade down'],['flat','Even (100)']])}
     </div>
     <canvas class="roll" id="vroll" aria-label="Piano roll of the variation"></canvas>
     <div class="varinfo"><span>${bars(varState.result.len)} · ${varState.result.notes.length} notes</span><button class="btn" id="v_again">Try another</button></div>
-    <div class="varbtns"><button class="btn primary" id="v_row">Add as new row below</button><button class="btn" id="v_only">New row with just this clip</button><button class="btn" id="v_replace">Replace this clip</button></div>
-    <p class="hint">Natural velocity accents the downbeats, softens the offbeats and adds small random changes so repeats don't sound copied. Nothing changes until you add or replace. "Try another" makes a different version with the same settings. Undo works as usual.</p>`;
+    <div class="varbtns"><button class="btn primary" id="v_row">Add as new row below</button><button class="btn" id="v_only">New row with just this clip</button></div>
+    <p class="hint">The variation goes on a new row under this song, named “${esc(varNames(r,c).row)}”, with the clip named “${esc(varNames(r,c).clip)}”. The original clip is never changed. Natural velocity accents the downbeats, softens the offbeats and adds small random changes so repeats don't sound copied. Nothing changes until you add or replace. "Try another" makes a different version with the same settings. Undo works as usual.</p>`;
   }
   box.innerHTML=h;
   if(canVar) wireVariation(r,t,c);
@@ -650,15 +663,21 @@ function wireVariation(r,t,c){
   const ty=TYPES[t.type]||['?','--other'];
   const upd=()=>{ varState.result=makeVariation(c,t,varState.key,varState.opts); drawRoll(varState.result,ty[1],'vroll');
     document.querySelector('.varinfo span').textContent=`${bars(varState.result.len)} · ${varState.result.notes.length} notes`; };
-  ['v_len','v_fill','v_pitch','v_rhythm','v_vel'].forEach(id=>{ const el=$(id); if(el) el.onchange=()=>{ varState.opts[id.slice(2)]=el.value; upd(); }; });
+  ['v_len','v_fill','v_pitch','v_part','v_rhythm','v_vel'].forEach(id=>{ const el=$(id); if(el) el.onchange=()=>{ varState.opts[id.slice(2)]=el.value; upd(); }; });
   $('v_again').onclick=()=>{ varState.opts.seed=1+Math.floor(Math.random()*1e6); upd(); };
-  const vclip=()=>({...c,notes:varState.result.notes,len:varState.result.len,loop:true,n:c.n.replace(/ var( \d+)?$/,'')+' var',_gen:true});
-  const nextName=()=>{ let i=2, nm=r.name+' var'; while(S.rows.some(x=>x.name===nm)) nm=r.name+' var '+(i++); return nm; };
-  const insert=row=>{ const at=S.rows.indexOf(r)+1; S.rows.splice(at,0,row); selClip={row,t:t.name}; varState=null; };
-  $('v_row').onclick=()=>change(()=>{ const row=cloneRow(r,nextName()); row.clips[t.name]=vclip(); insert(row); },'Added variation as a new row');
-  $('v_only').onclick=()=>change(()=>{ const row=cloneRow(r,nextName()); row.clips={[t.name]:vclip()}; row._only=true; insert(row); },'Added a row with just the variation');
-  $('v_replace').onclick=()=>change(()=>{ r.clips[t.name]=vclip(); selClip={row:r,t:t.name}; varState=null; },'Replaced the clip with the variation');
+  const nm=varNames(r,c);
+  const vclip=()=>({...c,notes:varState.result.notes,len:varState.result.len,loop:true,n:nm.clip,_gen:true});
+  const insert=row=>{ const base=nm.base; let at=S.rows.indexOf(r)+1;
+    while(at<S.rows.length&&new RegExp('^'+base.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+' var \\d+$').test(S.rows[at].name)) at++;
+    S.rows.splice(at,0,row); selClip={row,t:t.name}; varState=null; };
+  $('v_row').onclick=()=>change(()=>{ const row=cloneRow(r,nm.row); row.clips[t.name]=vclip(); insert(row); },`Added ${nm.row}`);
+  $('v_only').onclick=()=>change(()=>{ const row=cloneRow(r,nm.row); row.clips={[t.name]:vclip()}; row._only=true; insert(row); },`Added ${nm.row}`);
 }
+// "Hardgroove 1 var 1", "var 2"… numbered per song; the clip gets the same number
+function varNames(r,c){ const base=r.name.replace(/ var \d+$/,'').replace(/ var$/,'');
+  let n=1; const re=new RegExp('^'+base.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+' var (\\d+)$');
+  for(const x of S.rows){ const m=re.exec(x.name); if(m) n=Math.max(n,+m[1]+1); }
+  return {base,row:`${base} var ${n}`,clip:`${c.n.replace(/ var \d+$/,'').replace(/ var$/,'')} var ${n}`}; }
 function trackSummary(){
   return `<div class="sec">Tracks</div><dl class="kv">${visibleTracks().map((t,k)=>`<dt>${k+1}</dt><dd>${esc(t.name)} <span style="color:var(--muted)">${(TYPES[t.type]||['?'])[0]}${t.out?' · '+esc(outLabel(t.out)):''}</span></dd>`).join('')}</dl>`;
 }
