@@ -276,6 +276,12 @@ function rebuild(text,arr,rows,tarr,trackOrder){
   }
   // when rows were removed, row numbers the MPC remembers (last selected row, playing clips, matrix scroll) could point past the end
   if(rows.length!==arr.items.length || rows.some((r,i)=>r.src!==i)){
+    // the per-row launch snapshot list (one entry per row, plus one) must follow the rows
+    try{ const k=out.indexOf('"rowLaunchSnapshotAssignments":'), c=out.indexOf('"controlGroupData":',k);
+      if(k>=0&&c>k&&c-k<200){ const g=findArray(out,'"rowLaunchSnapshotAssignments":','');
+        if(g.items.length){ const items=g.items.map(([a,b])=>out.slice(a,b)), blank=items[items.length-1];
+          const next=rows.map(r=>items[r.src]!==undefined?items[r.src]:blank); next.push(blank);
+          out=out.slice(0,g.open+1)+arrayBody(g,next)+out.slice(g.close); } } }catch(e){}
     out=out.replace(/"currentClipRow": (-?\d+)/,(m,n)=>'"currentClipRow": '+Math.max(0,Math.min(+n,rows.length-1)));
     out=out.replace(/"originY": \d+/g,'"originY": 0');
     try{ const t=findArray(out,'"trackClipTransportMap":','');
