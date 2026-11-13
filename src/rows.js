@@ -81,6 +81,8 @@ function rebuild(text,arr,rows,tarr,trackOrder){
     out=out.slice(0,tarr.open+1)+arrayBody(tarr,tparts)+out.slice(tarr.close);
   }
   // when rows were removed, row numbers the MPC remembers (last selected row, playing clips, matrix scroll) could point past the end
+  // a deleted clip may be one the MPC remembers as playing: forget playing clips
+  if(rows.some(r=>r.keep)){ try{ const t=findArray(out,'"trackClipTransportMap":',''); out=out.slice(0,t.open+1)+out.slice(t.close); }catch(e){} }
   if(rows.length!==arr.items.length || rows.some((r,i)=>r.src!==i)){
     // the per-row launch snapshot list (one entry per row, plus one) must follow the rows
     try{ const k=out.indexOf('"rowLaunchSnapshotAssignments":'), c=out.indexOf('"controlGroupData":',k);
