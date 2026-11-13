@@ -28,7 +28,7 @@
   --drum:#f0924a; --kg:#e0bd48; --plugin:#a982e0; --midi:#5ea1e8; --audio:#3cc0ae; --other:#8d969f;
   --cell-empty:#23282d; --sel:#e7eaed; --rowsel:#3d2620; --ok:#5cc27e; color-scheme:dark }
 [hidden]{display:none!important}
-html,body{height:100%}
+html,body{height:100%;overscroll-behavior:none}
 body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:14px;margin:0}
 .app{display:flex;flex-direction:column;height:100%;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:14px;box-sizing:border-box;gap:10px}
 header.strip{display:flex;flex-wrap:wrap;align-items:center;gap:10px 20px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 16px}
@@ -57,7 +57,7 @@ header.strip{display:flex;flex-wrap:wrap;align-items:center;gap:10px 20px;backgr
 .legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
 .main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px}
 @media (max-width:900px){.main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(320px,1fr) auto}}
-.gridwrap{min-width:0;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px;position:relative}
+.gridwrap{min-width:0;overflow:auto;overscroll-behavior:contain;background:var(--panel);border:1px solid var(--line);border-radius:8px;position:relative}
 table.grid{border-collapse:separate;border-spacing:0;font-size:12px}
 .grid th,.grid td{padding:0}
 .grid thead th{position:sticky;top:0;z-index:3;background:var(--panel);border-bottom:1px solid var(--line);vertical-align:bottom}
@@ -501,6 +501,9 @@ function cloneRow(r,newName){
   for(const [k,v] of Object.entries(r.clips)) c.clips[k]={...v};
   return c;
 }
+
+/* ---------- don't lose work by leaving the page ---------- */
+window.addEventListener('beforeunload',e=>{ try{ if(S&&RAW&&isDirty()&&!savedNote){ e.preventDefault(); e.returnValue=''; return ''; } }catch(err){} });
 
 /* ---------- draft kept in this browser ---------- */
 const draftKey=()=>RAW?('clip-librarian:'+S.file+':'+RAW.size):null;
