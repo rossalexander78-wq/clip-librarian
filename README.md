@@ -16,7 +16,7 @@ A browser tool for planning live sets in **MPC 3** projects (`.xpj`). Open a pro
 - **Make a variation** of any clip: change its length, give it new notes in the same key, move it up or down in the key, invert or reverse it, make the rhythm busier, sparser, swung, double or half time, and give it natural velocity. Each variation replaces the notes in a new clip, on a new numbered row (e.g. "Hardgroove 1 var 1") that keeps all the other clips from the row; the original row is never changed. Lengths from ½ bar to 32 bars. Held chords and single-note lines are varied separately.
 - **New project from these rows**: save just the selected rows as a separate project, to pull parts of a set out for recording.
 
-Your original file is never changed. Saves always go to a new copy named "… Clip Librarian.xpj". Only the parts you edited are rewritten; every other byte of the project is kept as it was.
+Your original file is never changed. Saves always go to a new copy: a zip holding a folder (e.g. "… Clip Librarian") with your project inside under its original name. Copy your `…_[ProjectData]` sample folder into that folder unchanged and open the project from there; keeping the original name is how the MPC finds the samples. Only the parts you edited are rewritten; every other byte of the project is kept as it was.
 
 Everything runs in your browser and the project never leaves your computer.
 

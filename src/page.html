@@ -466,20 +466,27 @@ async function doSave(opts={}){
     const gz=await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
     const base=S.file.replace(/\.xpj$/i,'');
     const name=(opts.name||base+' Clip Librarian').replace(/[()\[\]{}]+/g,' ').replace(/[\\/:*?"<>|]+/g,'-').replace(/\s+/g,' ').trim()||base+' extract';
-    if(standalone){
-      const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([gz],{type:'application/octet-stream'})); a.download=name+'.xpj';
+    // The copy keeps the original project's file name and goes in its own folder, so the user copies their
+    // sample folder in beside it unchanged: renaming the sample folder is what stopped the MPC finding samples.
+    const what=opts.subset?`a new project made from ${source.length} row${source.length>1?'s':''} of ${S.file} (${source.map(r=>r.name).join(', ')}). All tracks, programs and mixer settings are kept`:`an edited copy of ${S.file}`;
+    const readme=`Saved by Clip Librarian on ${new Date().toLocaleString()}\n\nThe folder "${name}" holds ${base}.xpj, which is ${what}. Your original project is unchanged.\n\nTo open it on the MPC:\n1. Copy your sample folder\n     ${base}_[ProjectData]\n   into the "${name}" folder, next to ${base}.xpj. Do not rename it.\n2. Put the "${name}" folder on the MPC drive and open ${base}.xpj from inside it.\n\nThe project keeps its original name on purpose: the MPC finds the samples by that name.\n`;
+    if(standalone&&typeof JSZip==='undefined'){ // offline fallback: just the project file
+      const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([gz],{type:'application/octet-stream'})); a.download=base+'.xpj';
       document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},4000);
       if(!opts.subset) savedNote='Saved '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-      toast(`Saved ${name}.xpj to your Downloads. Copy ${base}_[ProjectData] next to it and rename the copy ${name}_[ProjectData].`);
+      toast(`Saved ${base}.xpj to your Downloads. Put it in a new folder named “${name}” and copy ${base}_[ProjectData] in beside it, unchanged.`);
       return;
     }
     if(typeof JSZip==='undefined') throw {code:'zip'};
-    const zip=new JSZip(); zip.file(name+'.xpj',gz,{compression:'STORE'});
-    zip.file('README.txt',`Saved by Clip Librarian on ${new Date().toLocaleString()}\n\n${name}.xpj is ${opts.subset?`a new project made from ${source.length} row${source.length>1?'s':''} of ${S.file} (${source.map(r=>r.name).join(', ')}). All tracks, programs and mixer settings are kept`:`an edited copy of ${S.file}`}. The original project is unchanged.\n\nTo open it on the MPC: put ${name}.xpj in the same folder as your original project, make a copy of the folder\n  ${base}_[ProjectData]\nand rename the copy to\n  ${name}_[ProjectData]\nso the MPC finds the samples.\n`);
+    const zip=new JSZip(); const dir=zip.folder(name);
+    dir.file(base+'.xpj',gz,{compression:'STORE'}); dir.file('README.txt',readme);
     const blob=await zip.generateAsync({type:'blob',compression:'STORE'});
-    await downloads.save({filename:name+'.zip',data:blob});
+    if(standalone){
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name+'.zip';
+      document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},4000);
+    } else await downloads.save({filename:name+'.zip',data:blob});
     if(!opts.subset) savedNote='Saved '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-    toast(`Saved ${name}.zip. Unzip it to get ${name}.xpj.`);
+    toast(`Saved ${name}.zip. Unzip it, then copy ${base}_[ProjectData] into the “${name}” folder, unchanged.`);
   }catch(e){
     const code=e&&e.code;
     toast(code==='declined'?'Save cancelled.':code==='zip'?'The zip tool didn’t load. Reload the page and try again.':code==='rate_limited'?'A save prompt is already open.':'Saving didn’t work here. '+((e&&e.message)||''));
@@ -580,7 +587,7 @@ function inspector(){
       <p class="hint">Drag the row names to move ${one?'this row':'these rows'}, or use ↑ Up and ↓ Down. Copy and Paste put copies right after the selection.</p>
       ${one?'':tidyPanel(new Set(rs))}
       <div class="sec">New project from ${one?'this row':'these rows'}</div>
-      <div class="field"><label for="exname">Project name</label><input type="text" id="exname" value="${esc(S.file.replace(/\.xpj$/i,'')+' - '+rs[0].name+(rs.length>1?' to '+rs[rs.length-1].name:''))}"></div>
+      <div class="field"><label for="exname">Folder name</label><input type="text" id="exname" value="${esc(S.file.replace(/\.xpj$/i,'')+' - '+rs[0].name+(rs.length>1?' to '+rs[rs.length-1].name:''))}"></div>
       <button class="btn primary" id="exsave" ${RAW?'':'disabled'}>Save ${rs.length} row${rs.length>1?'s':''} as new project</button>
       <p class="hint">${RAW?'Makes a separate project with just these rows, ready for recording them as tracks. All tracks, sounds and mixer settings come along, and your edits to these rows are included.':'Open your own .xpj project to save rows as a new project.'}</p>
       <div class="sec">Shortcuts</div>${keysHelp()}`;
